@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import time
+
+import yaml
+
+
+def main() -> None:
+    """
+    Display application diff for GitHub.
+    """
+
+    parser = argparse.ArgumentParser(description="Display application diff for GitHub.")
+    parser.add_argument("--revision", help="Diff on the revision")
+    args = parser.parse_args()
+
+    app_list = json.loads(
+        subprocess.run(
+            ["argocd", "app", "list", "--output=json"], stdout=subprocess.PIPE, check=True
+        ).stdout.decode("utf-8")
+    )
+    apps = {
+        app["metadata"]["name"]
+        for app in app_list
+        if app["spec"]["source"]["repoURL"] == f"git@github.com:{os.environ['GITHUB_REPOSITORY']}.git"
+    }
+
+    with open("data/argocd.yaml", encoding="utf-8") as no_sync_file:
+        apps_re = [
+            re.compile(pattern) for pattern in yaml.load(no_sync_file, Loader=yaml.SafeLoader)["apps_re"]
+        ]
+
+    for app in apps:
+        accept = False
+        for app_re in apps_re:
+            if app_re.match(app):
+                accept = True
+                break
+        if not accept:
+            continue
+        start = time.perf_counter()
+        app_diff_proc = subprocess.run(  # pylint: disable=subprocess-run-check
+            [
+                "argocd",
+                "app",
+                "diff",
+                "--exit-code=false",
+                app,
+                "--loglevel=warn",
+                f"--revision={args.revision}",
+            ],
+            stdout=subprocess.PIPE,
+            encoding="utf-8",
+        )
+        end = time.perf_counter()
+        if app_diff_proc.returncode == 0:
+            app_diff = app_diff_proc.stdout
+            if app_diff:
+                print(f"::group::Diff on application {app}")
+                print(app_diff)
+                print("::endgroup::")
+            else:
+                print(f"No diff on application {app}")
+        else:
+            print(f"Error on application {app}")
+            print(app_diff_proc.stderr)
+            print(app_diff_proc.stdout)
+        print(f"Time to diff application {app}: {end - start:.2f}s")
+
+
+if __name__ == "__main__":
+    main()

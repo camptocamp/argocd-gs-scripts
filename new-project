@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+
+import argparse
+import glob
+import os
+import shutil
+import subprocess
+
+if __name__ == "__main__":
+    argparser = argparse.ArgumentParser("Create a new GeoMapFish project")
+    argparser.add_argument("--name", required=True, help="The name of the project")
+    argparser.add_argument(
+        "--anonymized-name",
+        required=True,
+        help="The anonymized name use in mutualize print, usually the integration database name",
+    )
+    argparser.add_argument("--int-hostname", help="The integration hostname, default ...")
+    argparser.add_argument("--prod-hostname", help="The production hostname, default ...")
+    argparser.add_argument(
+        "--version", required=True, help="The GeoMapFish version (with dot) to use, e.g. 2.8"
+    )
+    argparser.add_argument("--main-schema", help="The main schema, default to main_<version>' with dash")
+    argparser.add_argument("--static-schema", help="The main schema, default to 'static_<version>' with dash")
+    argparser.add_argument(
+        "--repo-name", required=True, help="The name of the GitHub repository name, without owner"
+    )
+    argparser.add_argument(
+        "--package-name", required=True, help="The package name (used in scaffold) of the print-apps "
+    )
+
+    args = argparser.parse_args()
+
+    main_schema = args.main_schema or f"main_{args.version.replace('.', '_')}"
+    static_schema = args.static_schema or f"static_{args.version.replace('.', '_')}"
+
+    anonymized_name = args.anonymized_name.replace("_", "-")
+
+    for section in ["values", "int", "prod"]:
+        os.makedirs(f"""apps/{section}/{args.name}""", exist_ok=True)
+        for filename in os.listdir(f"""apps/example/{section}"""):
+            if "geomapfish-" not in filename or f"geomapfish-{args.version.replace('.', '-')}" in filename:
+                if os.path.isdir(f"apps/example/{section}/{filename}"):
+                    if os.path.exists(f"apps/{section}/{args.name}/{filename}"):
+                        shutil.rmtree(f"apps/{section}/{args.name}/{filename}")
+                    shutil.copytree(
+                        f"apps/example/{section}/{filename}", f"""apps/{section}/{args.name}/{filename}"""
+                    )
+                else:
+                    shutil.copy(
+                        f"apps/example/{section}/{filename}", f"""apps/{section}/{args.name}/{filename}"""
+                    )
+
+        for filename in glob.glob(f"apps/{section}/{args.name}/**/*.yaml", recursive=True):
+            hostname = args.prod_hostname if section == "prod" else args.int_hostname
+            if not hostname:
+                hostname = f"map.{section}.{args.name}.com"
+            for field, value in [
+                ("name", args.name),
+                ("anonymized_name", anonymized_name),
+                ("hostname", hostname),
+                ("main_schema", main_schema),
+                ("static_schema", static_schema),
+                ("repo_name", args.repo_name),
+                ("package_name", args.package_name),
+                ("geomapfish_version", args.version.replace(".", "-")),
+            ]:
+                subprocess.run(["sed", "-i", f"s/<{field}>/{value}/g", filename], check=True)
+
+    print("# Values to be filed (should be empty):")
+    for section in ["values", "int", "prod"]:
+        subprocess.run(
+            ["grep", "-r", "<[a-zA-Z0-9_-]\\+>", f"apps/{section}/{args.name}"],
+            check=False,
+            stderr=subprocess.PIPE,
+        )
+    print("# Secret files to be filed:")
+    for section in ["values", "int", "prod"]:
+        for filename in glob.glob(f"apps/{section}/{args.name}/**/secrets.yaml", recursive=True):
+            print(filename)
+        for filename in glob.glob(f"apps/{section}/{args.name}/**/secrets-*.yaml", recursive=True):
+            print(filename)

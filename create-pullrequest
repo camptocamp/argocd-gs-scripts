@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+if [[ $(git status --porcelain) == "" ]]; then
+    echo Nothing to commit
+    exit 0
+fi
+
+BRANCH_NAME=update-images-hash-${RANDOM}
+git checkout -b ${BRANCH_NAME}
+git add --all
+git commit --message="Update the images hash ${1:0:99}"
+git push origin ${BRANCH_NAME}
+gopass show gs/ci/github/token/gopass | gh auth login --with-token
+gh pr create --fill

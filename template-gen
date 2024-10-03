@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+
+
+import argparse
+import os
+import re
+import shlex
+import subprocess
+import sys
+
+import yaml
+
+
+def main() -> None:
+    """
+    Main function.
+    """
+
+    argparser = argparse.ArgumentParser("Generate the k8s file from the template")
+    argparser.add_argument("--update", help="Don't run dependency update", action="store_true")
+    argparser.add_argument("--kube-version", help="The kubernetes version", default="1.25.0")
+    argparser.add_argument("--helm", help="The used helm command", default=os.environ.get("HELM", "helm"))
+    argparser.add_argument("--debug", help="Enable verbose output", action="store_true")
+    argparser.add_argument("--index", help="The release index present in the helmfile", default=0, type=int)
+    argparser.add_argument("--namespace", help="The namespace", default="default")
+    argparser.add_argument("--dry-run", help="Run the command in dry-run mode", action="store_true")
+    argparser.add_argument("--values", help="get the merged values", action="store_true")
+    argparser.add_argument("--output", help="put the result in the given file")
+    argparser.add_argument(
+        "--no-sops", help="Do not use sops to decide the secret files", action="store_true"
+    )
+    argparser.add_argument("helmfile", help="The helmfile file")
+    args = argparser.parse_args()
+
+    with open(args.helmfile, encoding="utf-8") as sops_config_file:
+        helmfile = yaml.safe_load(sops_config_file)
+        release = helmfile["releases"][args.index]
+
+    base_dir = os.path.dirname(args.helmfile)
+    chart_dir = os.path.join(base_dir, release["chart"])
+
+    if args.update:
+        subprocess.run([args.helm, "dependency", "update"], check=True, cwd=chart_dir, stdout=sys.stderr)
+    helm_command = [args.helm, "template", f"{release['name']}", release["chart"]]
+    if args.debug:
+        helm_command.append("--debug")
+    success = True
+    for value in release.get("values", []):
+        value_path = os.path.join(base_dir, value)
+        if not os.path.exists(value_path):
+            success = False
+            print(f"File {value_path} not found")
+    if not success:
+        sys.exit(1)
+
+    values = []
+    to_rm = []
+    with open(
+        os.path.normpath(os.path.join(os.path.dirname(__file__), "../.sops.yaml")), encoding="utf-8"
+    ) as sops_config_file:
+        sops_config = yaml.safe_load(sops_config_file)
+    secret_file_re = re.compile(sops_config["creation_rules"][0]["path_regex"])
+    try:
+        if args.values:
+            from deepmerge import Merger
+
+            merger = Merger(
+                [
+                    (list, ["override"]),
+                    (dict, ["merge"]),
+                    (set, ["override"]),
+                ],
+                ["override"],
+                ["override"],
+            )
+
+            all_values = {}
+            for values_file in release.get("values", []):
+                if secret_file_re.match(values_file) and not args.no_sops:
+                    to_rm.append(os.path.join(base_dir, values_file) + ".decrypted")
+                    process = subprocess.run(
+                        ["sops", "--decrypt", os.path.normpath(os.path.join(base_dir, values_file))],
+                        stdout=subprocess.PIPE,
+                        encoding="utf-8",
+                    )
+                    next_values = yaml.safe_load(process.stdout)
+                else:
+                    with open(
+                        os.path.normpath(os.path.join(base_dir, values_file)), encoding="utf-8"
+                    ) as values_file:
+                        next_values = yaml.safe_load(values_file.read())
+
+                merger.merge(all_values, next_values)
+
+            print(yaml.safe_dump(all_values))
+            exit(0)
+
+        for values_file in release.get("values", []):
+            if secret_file_re.match(values_file) and not args.no_sops:
+                to_rm.append(os.path.join(base_dir, values_file) + ".decrypted")
+                with open(
+                    os.path.normpath(os.path.join(base_dir, values_file) + ".decrypted"),
+                    "w",
+                    encoding="utf-8",
+                ) as sops_file:
+                    subprocess.run(
+                        ["sops", "--decrypt", os.path.normpath(os.path.join(base_dir, values_file))],
+                        stdout=sops_file,
+                    )
+                values.append(values_file + ".decrypted")
+            else:
+                values.append(values_file)
+
+        cmd = [
+            *helm_command,
+            f"--kube-version={args.kube_version}",
+            f"--namespace={args.namespace}",
+            *[f"--values={values}" for values in values],
+        ]
+        if args.dry_run:
+            print(shlex.join(["cd", base_dir]))
+            print(shlex.join(cmd))
+        else:
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as output_file:
+                    proc = subprocess.run(cmd, cwd=base_dir, stdout=output_file, stderr=subprocess.DEVNULL)
+            else:
+                proc = subprocess.run(cmd, cwd=base_dir, stderr=subprocess.DEVNULL)
+            if proc.returncode != 0:
+                chart_dir = os.path.join(base_dir, release["chart"])
+                subprocess.run(["helm", "dependency", "update"], cwd=chart_dir)
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as output_file:
+                    proc = subprocess.run(cmd, cwd=base_dir, stdout=output_file)
+            else:
+                proc = subprocess.run(cmd, cwd=base_dir)
+            sys.exit(proc.returncode)
+
+    finally:
+        for file_ in to_rm:
+            if os.path.exists(file_):
+                os.remove(file_)
+
+
+if __name__ == "__main__":
+    main()

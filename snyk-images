@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import traceback
+from collections.abc import Iterable
+
+import yaml
+
+
+def get_images(data: dict | list) -> list[str]:
+    """
+    Browse Kubernetes manifest and extract all Docker images.
+    """
+    if isinstance(data, dict):
+        if "image" in data:
+            return [data["image"]]
+
+        images = []
+        for value in data.values():
+            images += get_images(value)
+        return images
+    if isinstance(data, str):
+        return []
+    if isinstance(data, Iterable):
+        images = []
+        for item in data:
+            images += get_images(item)
+        return images
+
+    return []
+
+
+def main() -> None:
+    """
+    Test the used in ArgoCD application images against high vulnerabilities, and monitor them, all that with Snyk.
+
+    Workflow:
+
+    - Get ArgoCD applications from Kubernetes cluster (because we do not have such information locally)
+    - Run Helm template on each application
+    - Extract all Docker images from generated Kubernetes manifest
+    - Run Snyk on each Docker image
+    """
+
+    image_hash_tag = {}
+    with open("data/images.yaml", encoding="utf-8") as images_file:
+        for image, hash_list in yaml.load(images_file, Loader=yaml.SafeLoader).items():
+            for hash in hash_list:
+                image_hash_tag[hash] = image
+
+    parser = argparse.ArgumentParser(
+        description="Test the used in ArgoCD application images against high vulnerabilities, and monitor them, all that with Snyk."
+    )
+    parser.parse_args()
+
+    # Get ArgoCD applications from Kubernetes cluster (because we do not have such information locally)
+    app_list = json.loads(
+        subprocess.run(
+            ["argocd", "app", "list", "--output=json"],
+            stdout=subprocess.PIPE,
+            check=True,
+            encoding="utf-8",
+        ).stdout
+    )
+    apps = {
+        app["metadata"]["name"]
+        for app in app_list
+        if app["spec"]["source"]["repoURL"] == f"git@github.com:{os.environ['GITHUB_REPOSITORY']}.git"
+    }
+
+    images = {}
+    for app in apps:
+        app_details = yaml.load(
+            subprocess.run(
+                [
+                    "argocd",
+                    "app",
+                    "get",
+                    app,
+                    "--output=yaml",
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                encoding="utf-8",
+            ).stdout,
+            Loader=yaml.SafeLoader,
+        )
+        app_name = app_details["spec"]["source"]["path"]
+        print(f"Get images from {app_name}")
+        sys.stdout.flush()
+
+        helmfile_filename = os.path.join(app_details["spec"]["source"]["path"], "helmfile.yaml")
+        if os.path.exists(helmfile_filename):
+            # Run Helm template on each application
+            # Extract all Docker images from generated Kubernetes manifest
+            with open(helmfile_filename, encoding="utf-8") as helmfile_file:
+                helmfile = yaml.load(
+                    helmfile_file.read(),
+                    Loader=yaml.SafeLoader,
+                )
+            for index in range(len(helmfile["releases"])):
+                print(f"::group::Get images from {app_name}[{index}]")
+                new_images = get_images(
+                    yaml.load_all(
+                        subprocess.run(
+                            [
+                                "scripts/template-gen",
+                                "--no-sops",
+                                f"--index={index}",
+                                os.path.join(app_details["spec"]["source"]["path"], "helmfile.yaml"),
+                            ],
+                            check=True,
+                            stdout=subprocess.PIPE,
+                            encoding="utf-8",
+                        ).stdout,
+                        Loader=yaml.SafeLoader,
+                    )
+                )
+                print()
+                print("Found images:")
+                for image in new_images:
+                    print(image)
+                    images.setdefault(image, set()).add(app_name)
+                print("::endgroup::")
+        else:
+            print(f'::warning::No helmfile.yaml found in "{app_name}"')
+
+    # Run Snyk on each Docker image
+    env = {**os.environ}
+    env["FORCE_COLOR"] = "true"
+    env["SNYK_TOKEN"] = subprocess.run(
+        ["gopass", "show", "gs/ci/snyk/token"], stdout=subprocess.PIPE, check=True, encoding="utf-8"
+    ).stdout.strip()
+
+    image_index: dict[str, int] = {}
+    for image, apps in images.items():
+        try:
+            if "@sha256:" in image:
+                image_body = image.split("@")[0]
+                hash_ = image.split("@")[1].split(":")[1]
+                if hash_ in image_hash_tag:
+                    original_image = image_hash_tag[hash_]
+                    original_tag = original_image
+                    if ":" in original_image:
+                        original_tag = original_image.split(":")[1]
+                    elif "/" in original_image:
+                        original_tag = original_image.split("/")[1]
+                    image_body += f"_{original_tag}"
+                index = image_index.get(image_body, 0)
+                image_index[image_body] = index + 1
+                suffix = "" if index == 0 else f"_{index}"
+                new_image = f"argocd_gmf_{image_body}{suffix}"
+            elif ":" in image:
+                image_body = image.split(":")[0]
+                tag = image.split(":")[1]
+                new_image = f"argocd_gmf_{image_body}_{tag}"
+
+            print(f"::group::Check image {image} monitored as {new_image}")
+            print("Concerned applications:")
+            for app in apps:
+                print(app)
+            print()
+            sys.stdout.flush()
+
+            test_success = True
+
+            subprocess.run(["docker", "pull", image], check=True)
+            if new_image:
+                subprocess.run(["docker", "tag", image, new_image], check=True)
+                subprocess.run(["docker", "image", "rm", image], check=True)
+                image = new_image
+
+            subprocess.run(
+                [
+                    "snyk",
+                    "container",
+                    "monitor",
+                    # Available only on the business plan
+                    # f"--project-tags=tag={image.split(':')[-1]}",
+                    image,
+                    "--app-vulns",
+                ],
+                check=True,
+                env=env,
+            )
+            subprocess.run(["docker", "image", "rm", image], check=True)
+        except subprocess.CalledProcessError:
+            test_success = False
+            traceback.print_exc()
+
+        print("::endgroup::")
+        if not test_success:
+            print("::error::With error")
+
+    subprocess.run(["docker", "image", "ls"], check=True)
+
+
+if __name__ == "__main__":
+    main()

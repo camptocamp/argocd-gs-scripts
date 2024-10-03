@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+
+import argparse
+import glob
+import subprocess
+import sys
+from typing import Any
+
+import yaml
+
+
+class GitHubLogGroup:
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def __enter__(self) -> None:
+        print(f"::group::{self.message}")
+        sys.stdout.flush()
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        del traceback
+        print("::endgroup::")
+        if exc_type is not None:
+            print(f"With {exc_value} error.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Test to apply the HELM charts.")
+    parser.parse_args()
+
+    for filename in [
+        *glob.glob("apps/int/**/helmfile.yaml", recursive=True),
+        *glob.glob("apps/prod/**/helmfile.yaml", recursive=True),
+    ]:
+        with open(filename, encoding="utf-8") as f:
+            helmfile = yaml.safe_load(f.read())
+
+        with GitHubLogGroup(f"Process file: {filename}"):
+            for nb, release in enumerate(helmfile["releases"]):
+                del release
+
+                try:
+                    subprocess.run(
+                        [
+                            "scripts/template-gen",
+                            "--debug",
+                            "--no-sops",
+                            f"--index={nb}",
+                            "--output=output.yaml",
+                            filename,
+                        ],
+                        check=True,
+                    )
+                except subprocess.CalledProcessError:
+                    print("Error during templating.")
+                    sys.exit(1)
+
+                try:
+                    subprocess.run(
+                        ["kubectl", "apply", "--filename=output.yaml"],
+                        check=True,
+                    )
+                    subprocess.run(["kubectl", "delete", "--filename=output.yaml"])
+                except subprocess.CalledProcessError:
+                    print("Error during apply.")
+                    with open("output.yaml", encoding="utf-8") as f:
+                        print(f.read())
+                    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

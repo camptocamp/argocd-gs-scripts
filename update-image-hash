@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+
+import argparse
+import glob
+import os
+import subprocess
+from datetime import datetime, timedelta
+from typing import Any
+
+import ruamel.yaml.error
+from ruamel.yaml import YAML, CommentToken
+
+
+def _get_image_name(image_config: dict[str, str]) -> str:
+    image = f'{image_config["registry"]}/' if "registry" in image_config else ""
+    image += image_config["repository"]
+    if "tag" in image_config:
+        image += f':{image_config["tag"]}'
+    return image
+
+
+def _find_images(yaml: dict[str, Any], images: set[str], filename: str) -> None:
+    if not isinstance(yaml, dict):
+        return
+    for key, value in yaml.items():
+        if key == "image":
+            if "repository" in value and "tag" in value:
+                images.add(_get_image_name(value))
+            else:
+                print(f"::warning::{filename}: Unsupported image: {value}")
+        elif isinstance(value, dict):
+            _find_images(value, images, filename)
+
+
+def _update_images_sha(yaml: dict[str, Any], images_data: dict[str, dict[str, datetime]]) -> None:
+    if not isinstance(yaml, dict):
+        return
+    for key, value in yaml.items():
+        if key == "image":
+            if "repository" in value and "tag" in value and not value.get("lock", False):
+                at_least = datetime.now() - timedelta(days=value.get("atleastOldDays", 0))
+                shas = [
+                    (sha, date)
+                    for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
+                    if date <= at_least
+                ]
+                shas.sort(key=lambda x: x[1])
+                if shas:
+                    # for compatibility with bitnami charts
+                    sha_key = "digest" if "digest" in value else "sha"
+                    value[sha_key] = shas[-1][0]
+                    value.ca.items.clear()
+                    value.ca.items[sha_key] = [
+                        None,
+                        None,
+                        CommentToken(
+                            "# Managed by update-image-hash script\n\n",
+                            ruamel.yaml.error.CommentMark(0),
+                            None,
+                        ),
+                        None,
+                    ]
+
+        elif isinstance(value, dict):
+            _update_images_sha(value, images_data)
+
+
+class GitHubLogGroup:
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def __enter__(self) -> None:
+        print(f"::group::{self.message}")
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        del exc_type, exc_value, traceback
+        print("::endgroup::")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Update the images hash.")
+    parser.add_argument("images", metavar="IMAGES", nargs="*", help="the images to be updated")
+    args = parser.parse_args()
+
+    images = set(args.images)
+    yaml = YAML()
+    yaml.default_flow_style = False
+
+    used_images = set()
+    for filename in glob.glob("**/*.yaml", recursive=True):
+        if "/templates/" in filename:
+            continue
+        basename = os.path.basename(filename)
+        if basename == "secrets.yaml" or basename.startswith("secrets-"):
+            continue
+        print(f"Open file: {filename}")
+        with open(filename, encoding="utf-8") as f:
+            values = yaml.load(f)
+            if "global" in values:
+                del values["global"]
+            _find_images(values, used_images, filename)
+
+    if images:
+        images = images.intersection(used_images)
+    else:
+        images = used_images
+
+    if not images:
+        print("Nothing to update.")
+        return
+
+    with open("data/images.yaml", encoding="utf-8") as f:
+        images_data = yaml.load(f)
+
+        for image in images:
+            print(f"Process image: {image}")
+            try:
+                process = subprocess.run(
+                    ["docker", "pull", image], stdout=subprocess.PIPE, encoding="utf-8", check=True
+                )
+
+                line = [line for line in process.stdout.split("\n") if line.startswith("Digest:")][0]
+                sha = line.split(":")[2]
+                print("Get sha:", sha)
+                if sha not in images_data.get(image, {}):
+                    images_data.setdefault(image, {})[sha] = datetime.now().isoformat()
+
+                # Delete the Docker images if the disk available space is under 5Gio
+                process = subprocess.run(
+                    ["df", "--output=avail", "/"], stdout=subprocess.PIPE, encoding="utf-8", check=True
+                )
+                if int(process.stdout.split("\n")[1]) < 5 * 1024 * 1024:
+                    with GitHubLogGroup("Docker system prune"):
+                        subprocess.run(["docker", "system", "prune", "--all", "--force"], check=True)
+            except subprocess.CalledProcessError as exception:
+                print(exception.cmd)
+                print(exception.stdout)
+                print(exception.stderr)
+                print("::error::Unable to get the image: " + image)
+
+    with open("data/images.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(images_data, f)
+
+    for image, data in images_data.items():
+        for sha, date in data.items():
+            data[sha] = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%f")
+
+    for filename in glob.glob("**/*.yaml", recursive=True):
+        if "/templates/" in filename:
+            continue
+        basename = os.path.basename(filename)
+        if basename == "secrets.yaml" or basename.startswith("secrets-"):
+            continue
+        print(f"Open file: {filename}")
+        with open(filename, encoding="utf-8") as f:
+            values = yaml.load(f)
+            _update_images_sha(values, images_data)
+        with open(filename, "w", encoding="utf-8") as f:
+            yaml.dump(values, f)
+
+
+if __name__ == "__main__":
+    main()

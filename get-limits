@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import logging
+import math
+import re
+import subprocess
+import sys
+
+import dateutil.parser
+
+LOG = logging.getLogger(__name__)
+
+
+_SUFFIX_LOOKUP = {
+    "p": 1000**-4,
+    "n": 1000**-3,
+    "u": 1000**-2,
+    "m": 1000**-1,
+    "": 1000**0,
+    "K": 1000**1,
+    "M": 1000**2,
+    "G": 1000**3,
+    "T": 1000**4,
+}
+_SUFFIX_ENG_LOOKUP = {
+    "": 1024**0,
+    "K": 1024**1,
+    "M": 1024**2,
+    "G": 1024**3,
+    "T": 1024**4,
+}
+_SUFFIX = {-1: "m", 0: "", 1: "K", 2: "M", 3: "G", 4: "T"}
+_PARSE_NUMBER_RE = re.compile(r"([0-9.]+)([a-zA-Z])")
+
+
+def parse_eng(value):
+    if value.endswith("i"):
+        match = _PARSE_NUMBER_RE.match(value[:-1])
+        if not match:
+            raise ValueError(f"Invalid value {value}")
+        if match.group(2) not in _SUFFIX_ENG_LOOKUP:
+            raise ValueError(f"Invalid value {value}")
+        return float(match.group(1)) * _SUFFIX_ENG_LOOKUP[match.group(2)]
+    else:
+        match = _PARSE_NUMBER_RE.match(value)
+        if not match:
+            return float(value)
+        if match.group(2) not in _SUFFIX_LOOKUP:
+            raise ValueError(f"Invalid value {value}")
+        return float(match.group(1)) * _SUFFIX_LOOKUP[match.group(2)]
+
+
+def format_eng(value):
+    if value == 0:
+        return "0"
+    power = math.floor(math.log(value, 1024))
+    if power not in _SUFFIX:
+        return f"{value:.3f}"
+    return f"{value/1024**power:.2f}{_SUFFIX[power]}i"
+
+
+def format(value):
+    if value == 0:
+        return "0"
+    power = math.floor(math.log(value, 1000))
+    if power not in _SUFFIX:
+        return f"{value:.3f}"
+    return f"{value/1000**power:.2f}{_SUFFIX[power]}"
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Display the limits of all pods")
+    parser.add_argument("--limit", help="Specify the limit we want to check (e.g. limits.cpu)")
+    parser.add_argument("--missing", action="store_true", help="Print the missing limits")
+    parser.add_argument("--units", type=float, help="test with number of business units")
+
+    parser.add_argument("namespace", help="the namespace")
+    args = parser.parse_args()
+
+    resources = {
+        "requests": {"cpu": 0, "memory": 0, "ephemeral-storage": 0},
+        "limits": {"cpu": 0, "memory": 0, "ephemeral-storage": 0},
+    }
+
+    if args.limit:
+        kind, limit = args.limit.split(".")
+        resources = {kind: {limit: 0}}
+
+    proc = subprocess.run(
+        ["kubectl", f"--namespace={args.namespace}", "get", "pods", "--output=json"],
+        stdout=subprocess.PIPE,
+        encoding="utf-8",
+    )
+    if proc.returncode != 0:
+        sys.exit(proc.returncode)
+    pods = json.loads(proc.stdout)
+    for pod in pods.get("items", []):
+        if args.missing:
+            all_containers = [
+                *pod.get("spec", {}).get("containers", []),
+                *pod.get("spec", {}).get("initContainers", []),
+            ]
+            for container in all_containers:
+                for kind, values in resources.items():
+                    for limit, value in values.items():
+                        if limit not in container.get("resources", {}).get(kind, {}):
+                            print(
+                                f"{pod['metadata']['name']}.{container['name']}: Missing resource {kind}.{limit}"
+                            )
+                        elif container.get("resources", {}).get(kind, {}).get(limit, 0) == 0:
+                            print(
+                                f"{pod['metadata']['name']}.{container['name']}: Missing resource {kind}.{limit}"
+                            )
+
+        for container in pod.get("spec", {}).get("containers", []):
+            for kind, values in container.get("resources", {}).items():
+                for limit, value in values.items():
+                    resources.setdefault(kind, {})[limit] = resources.get(kind, {}).get(limit, 0) + parse_eng(
+                        value
+                    )
+
+    for kind, values in resources.items():
+        print(f"{kind[0].upper()}{kind[1:]}:")
+        for limit, value in values.items():
+            if limit == "cpu":
+                print(f"{limit}: {format(value)}")
+            else:
+                print(f"{limit}: {format_eng(value)}")
+        print()
+
+    if args.units is not None:
+        units_resources = {
+            "requests": {
+                "cpu": args.units,
+                "memory": 3 * 1024 * 1024 * 1024 * args.units,
+                "ephemeral-storage": 8 * 1024 * 1024 * 1024 * args.units,
+            },
+            "limits": {
+                "cpu": 100,
+                "memory": 8 * 1024 * 1024 * 1024 * args.units,
+                "ephemeral-storage": 8 * 1024 * 1024 * 1024 * args.units,
+            },
+        }
+
+        for kind, values in resources.items():
+            for limit, value in values.items():
+                if value > units_resources[kind][limit] * 0.8:
+                    formatted_value = format(value) if limit == "cpu" else format_eng(value)
+                    formatted_unit_value = (
+                        format(units_resources[kind][limit])
+                        if limit == "cpu"
+                        else format_eng(units_resources[kind][limit])
+                    )
+                    print(
+                        f"Error: The {kind}.{limit} is too low ({formatted_value} > {formatted_unit_value}, with a margin of 20%)"
+                    )
+
+
+if __name__ == "__main__":
+    main()

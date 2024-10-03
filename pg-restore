@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+
+import argparse
+import pathlib
+import shlex
+import subprocess
+import sys
+from importlib.machinery import SourceFileLoader
+
+psql = SourceFileLoader("psql", str(pathlib.Path(__file__).absolute().with_name("psql"))).load_module()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        """
+Run pg_restore on the tools container like:
+
+scripts/pg_restore gmf-demo-int database-gmf-demo ../demo.backup -Fc --no-owner --no-privileges --verbose
+"""
+    )
+    parser.add_argument("namespace", help="The namespace")
+    parser.add_argument("secret", nargs="?", help="The secret name")
+    parser.add_argument("backup_file", nargs="?", help="The backup file")
+    parser.add_argument("--dry-run", action="store_true", help="Display the credentials")
+    parser.add_argument("arguments", nargs=argparse.REMAINDER, help="The pg_restore arguments")
+    args = parser.parse_args()
+
+    decoded_secrets = psql.get_secret(args.namespace, args.secret)
+
+    if args.backup_file is None:
+        print("The backup file is required")
+        sys.exit(1)
+
+    with open(args.backup_file, "rb") as backup_file:
+        cmd = [
+            "pg_restore",
+            f"--dbname={decoded_secrets['database']}",
+            *args.arguments,
+        ]
+        print(f"cat {args.backup_file} | {shlex.join(cmd)}")
+
+        env = psql.get_env(decoded_secrets)
+        if args.dry_run:
+            env_str = " ".join(["=".join(e) for e in env.items()])
+            print(f" (cat {args.backup_file} | {env_str} {shlex.join(cmd)})")
+            sys.exit(0)
+
+        print(f'Used database: {decoded_secrets["database"]}')
+
+        proc = subprocess.run(cmd, env=env, stdin=backup_file)  # pylint: disable=subprocess-run-check
+
+        sys.exit(proc.returncode)

@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+
+import argparse
+import base64
+import hashlib
+import json
+import shlex
+import signal
+import subprocess
+import sys
+
+
+def get_secret(namespace: str, secret: str) -> dict[str, str]:
+    if secret is None:
+        subprocess.run(["kubectl", f"--namespace={namespace}", "get", "secrets"], check=True)
+        sys.exit(0)
+
+    secret = json.loads(
+        subprocess.run(
+            ["kubectl", f"--namespace={namespace}", "get", "secret", secret, "--output=json"],
+            stdout=subprocess.PIPE,
+            encoding="utf-8",
+            check=True,
+        ).stdout
+    )
+
+    return {key: base64.b64decode(value).decode("utf-8") for key, value in secret["data"].items()}
+
+
+def get_env(decoded_secrets: dict[str, str]) -> dict[str, str]:
+    return {
+        "PGHOST": "odyssey.apps.gs-ch-prod.camptocamp.com",
+        "PGPORT": "5432",
+        "PGDATABASE": decoded_secrets["database"],
+        "PGUSER": decoded_secrets["username"],
+        "PGPASSWORD": decoded_secrets["password"],
+        "PGSSLMODE": "require",
+    }
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--odyssey", action="store_true", help="Get the configuration for Odyssey")
+    parser.add_argument("--display", action="store_true", help="Display the credentials")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Display the command to run without executing it"
+    )
+    parser.add_argument("namespace", help="The namespace")
+    parser.add_argument("secret", nargs="?", help="The secret name")
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+
+    decoded_secrets = get_secret(args.namespace, args.secret)
+
+    if args.odyssey:
+        print(
+            f"""
+To add in this file https://github.com/camptocamp/argocd-gs-platform-ch-production-cluster-apps/blob/main/apps/odyssey/secrets.yaml
+With SOPS:
+
+            {args.namespace}:
+                storage: {'gmf_int' if args.namespace.endswith('-int') else 'gmf_prod'}
+                username: {decoded_secrets["username"]}
+                database: {decoded_secrets["database"]}
+                password: md5{hashlib.md5((decoded_secrets['password'] + decoded_secrets['username']).encode()).hexdigest()}
+                options:
+                    authentication: md5
+"""
+        )
+        sys.exit(0)
+
+    env = get_env(decoded_secrets)
+    if args.display:
+        for key, value in env.items():
+            print(f"{key}={value}")
+        sys.exit(0)
+    if args.dry_run:
+        print(" ".join(["=".join(e) for e in env.items()]) + " " + shlex.join(args.command or ["psql"]))
+        sys.exit(0)
+
+    print(f'Used database: {decoded_secrets["database"]}')
+
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    proc = subprocess.run(args.command or ["psql"], env=env)  # pylint: disable=subprocess-run-check
+    sys.exit(proc.returncode)
