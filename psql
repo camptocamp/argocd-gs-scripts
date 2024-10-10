@@ -8,26 +8,29 @@ import shlex
 import signal
 import subprocess
 import sys
+from webbrowser import get
 
 
-def get_secret(namespace: str, secret: str) -> dict[str, str]:
-    if secret is None:
-        subprocess.run(["kubectl", f"--namespace={namespace}", "get", "secrets"], check=True)
-        sys.exit(0)
+def _get_secret(keyvault: str, keyvault_key: str) -> str:
+    json_str=  subprocess.run([
+                            "az",
+                    "keyvault",
+                    "secret",
+                    "show",
+                    f"--vault-name={keyvault}",
+                    f"--name={keyvault_key}",
+    ], stdout=subprocess.PIPE, encoding="utf-8", check=True).stdout
+    return json.loads(json_str)["value"]
 
-    secret = json.loads(
-        subprocess.run(
-            ["kubectl", f"--namespace={namespace}", "get", "secret", secret, "--output=json"],
-            stdout=subprocess.PIPE,
-            encoding="utf-8",
-            check=True,
-        ).stdout
-    )
-
-    return {key: base64.b64decode(value).decode("utf-8") for key, value in secret["data"].items()}
+def _get_secrets(keyvault: str, database: str) -> dict[str, str]:
+    return {
+        "database": _get_secret(keyvault, f"pg-{database}-database"),
+        "username": _get_secret(keyvault, f"pg-{database}-username"),
+        "password": _get_secret(keyvault, f"pg-{database}-password"),
+    }
 
 
-def get_env(decoded_secrets: dict[str, str]) -> dict[str, str]:
+def _get_env(decoded_secrets: dict[str, str]) -> dict[str, str]:
     return {
         "PGHOST": "odyssey.apps.gs-ch-prod.camptocamp.com",
         "PGPORT": "5432",
@@ -39,27 +42,30 @@ def get_env(decoded_secrets: dict[str, str]) -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Run psql with the credentials from Azure Keyvault.",
+                                     usage= "scripts/psql gmf-demoprod-kv gmf")
     parser.add_argument("--odyssey", action="store_true", help="Get the configuration for Odyssey")
     parser.add_argument("--display", action="store_true", help="Display the credentials")
     parser.add_argument(
         "--dry-run", action="store_true", help="Display the command to run without executing it"
     )
-    parser.add_argument("namespace", help="The namespace")
-    parser.add_argument("secret", nargs="?", help="The secret name")
+    parser.add_argument("keyvault", help="The keyvault name")
+    parser.add_argument("database", nargs="?", help="The database nick name")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
-    decoded_secrets = get_secret(args.namespace, args.secret)
+    decoded_secrets = _get_secrets(args.keyvault, args.database)
 
     if args.odyssey:
+        short_name = args.keyvault[:-6] if args.keyvault.endswith("int-kv") else args.keyvault[:-7]
+        env = "int" if args.keyvault.endswith("int-kv") else "prod"
         print(
             f"""
-To add in this file https://github.com/camptocamp/argocd-gs-platform-ch-production-cluster-apps/blob/main/apps/odyssey/secrets.yaml
+To add in this file https://github.com/camptocamp/argocd-shelter-cluster-apps/blob/main/apps/prod/gs/ch/odyssey/secrets.yaml
 With SOPS:
 
-            {args.namespace}:
-                storage: {'gmf_int' if args.namespace.endswith('-int') else 'gmf_prod'}
+            {short_name}-{args.database}-{env}:
+                storage: gmf_{env}
                 username: {decoded_secrets["username"]}
                 database: {decoded_secrets["database"]}
                 password: md5{hashlib.md5((decoded_secrets['password'] + decoded_secrets['username']).encode()).hexdigest()}
@@ -69,7 +75,7 @@ With SOPS:
         )
         sys.exit(0)
 
-    env = get_env(decoded_secrets)
+    env = _get_env(decoded_secrets)
     if args.display:
         for key, value in env.items():
             print(f"{key}={value}")
