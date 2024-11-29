@@ -72,10 +72,8 @@ def _main():
         print(f"  Service: {item['service']}:{item['port']}")
         if item['status']:
             print("  Status:")
-            print(fx.bold, end='')
             for line in yaml.dump(item['status'], default_flow_style=False).strip().split('\n'):
                 print(f"    {line}")
-            print(fx.reset, end='')
 
     service = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'services', ingress["service"], '--output=json'],
                                         stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
@@ -99,10 +97,8 @@ def _main():
         print(f"  Port: {ingress['port']} not found!!")
     if service['status']:
         print("  Status:")
-        print(fx.bold, end='')
         for line in yaml.dump(service['status'], default_flow_style=False).strip().split('\n'):
             print(f"    {line}")
-        print(fx.reset, end='')
     print('  Selector:')
     for key, value in service['spec']['selector'].items():
         print(f"    {key}: {value}")
@@ -165,9 +161,21 @@ def _main():
                 print(f"    Port: {port['port']}")
 
     print()
-    for pod in pods.values():
-        pod_raw = json.loads(subprocess.run(['kubectl', f'--namespace={pod["namespace"]}', 'get', 'pods', pod["name"], '--output=json'],
-                                           stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+    pods_raw = {
+        'items': []}
+    if pods:
+        for pod in pods.values():
+            pod_raw = json.loads(subprocess.run(['kubectl', f'--namespace={pod["namespace"]}', 'get', 'pods', pod["name"], '--output=json'],
+                                               stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+            pods_raw['items'].append(pod_raw)
+    elif service.get('spec', {}).get('selector'):
+        # get pods with service selector labels
+        pods_raw = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'pods', '--output=json', f'--selector={",".join([f"{key}={value}" for key, value in service["spec"]["selector"].items()])}'],
+                                             stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+
+    if not pods_raw['items']:
+        print(check("No pods found for this service, this probably means that there are no ready pods.", False))
+    for pod_raw in pods_raw['items']:
         print(title(f"{pod['namespace']}:{pod['name']}:"))
         print(check(f"  Status: {pod_raw['status']['phase']}", pod_raw['status']['phase'] == 'Running'))
         for condition in pod_raw['status']['conditions']:
@@ -177,8 +185,6 @@ def _main():
             print(title(f"    {container_status['name']}:"))
             print(check(f"      Ready: {container_status['ready']}", container_status['ready']))
             print(check(f"      Started: {container_status['started']}", container_status['started']))
-
-
 
 if __name__ == '__main__':
     _main()
