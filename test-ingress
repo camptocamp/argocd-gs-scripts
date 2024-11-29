@@ -6,6 +6,8 @@ import subprocess
 import yaml
 from ansi.colour import fg, fx
 
+# TODO: test ports correspondences ingress -> service -> pod
+# TODO: test ingress certificates
 
 def title(text):
     return f'{fg.blue}{fx.bold}{text}{fx.reset}{fx.reset}'
@@ -101,24 +103,29 @@ def _main():
         for line in yaml.dump(service['status'], default_flow_style=False).strip().split('\n'):
             print(f"    {line}")
         print(fx.reset, end='')
-
+    print('  Selector:')
+    for key, value in service['spec']['selector'].items():
+        print(f"    {key}: {value}")
 
     endpoints = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'endpoints', service_name, '--output=json'],
                                              stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
     pods = {}
     print()
     print(title(f"Endpoints for {service_name}:"))
-    for endpoint in endpoints['subsets']:
-        for address in endpoints.get('addresses', []):
-            print(f"  IP: {address['ip']}")
-            print(f"  {address['targetRef']['kind']}: {address['targetRef']['namespace']}:{address['targetRef']['name']}")
-            pods[f"{address['targetRef']['namespace']}:{address['targetRef']['name']}"] = {
-                'namespace': address['targetRef']['namespace'],
-                'name': address['targetRef']['name'],
-            }
-        for port in endpoint['ports']:
-            print(f"  Port {port['port']}:")
-            print(f"    Name: {port.get('name')}")
+    if 'subsets' not in endpoints:
+        print(check("  No endpoints found for this service, this probably means that there are no ready pods.", False))
+    else:
+        for endpoint in endpoints['subsets']:
+            for address in endpoints.get('addresses', []):
+                print(f"  IP: {address['ip']}")
+                print(f"  {address['targetRef']['kind']}: {address['targetRef']['namespace']}:{address['targetRef']['name']}")
+                pods[f"{address['targetRef']['namespace']}:{address['targetRef']['name']}"] = {
+                    'namespace': address['targetRef']['namespace'],
+                    'name': address['targetRef']['name'],
+                }
+            for port in endpoint['ports']:
+                print(f"  Port {port['port']}:")
+                print(f"    Name: {port.get('name')}")
 
     all_endpointslice = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'endpointslices', '--output=json'],
                                              stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
@@ -135,23 +142,27 @@ def _main():
 
         print(f"  Name: {endpointslice['metadata']['name']}")
         print("  Endpoints:")
-        for endpoint in endpointslice['endpoints']:
-            print(f"    IP: {', '.join(endpoint['addresses'])}")
-            print(f"    {endpoint['targetRef']['kind']}: {endpoint['targetRef']['namespace']}:{endpoint['targetRef']['name']}")
-            pods[f"{endpoint['targetRef']['namespace']}:{endpoint['targetRef']['name']}"] = {
-                'namespace': endpoint['targetRef']['namespace'],
-                'name': endpoint['targetRef']['name'],
-            }
-            print("    Conditions:")
-            print(check(f"      Ready: {endpoint['conditions']['ready']}", endpoint['conditions']['ready']))
-            print(check(f"      Serving: {endpoint['conditions']['serving']}", endpoint['conditions']['serving']))
-            print(f"      Terminating: {endpoint['conditions']['terminating']}")
+        if 'endpoints' not in endpointslice or endpointslice['endpoints'] is None:
+            print(check("    No endpoints found for this service Endpointslice, this probably means that there are no ready pods.", False))
+            continue
+        else:
+            for endpoint in endpointslice['endpoints']:
+                print(f"    IP: {', '.join(endpoint['addresses'])}")
+                print(f"    {endpoint['targetRef']['kind']}: {endpoint['targetRef']['namespace']}:{endpoint['targetRef']['name']}")
+                pods[f"{endpoint['targetRef']['namespace']}:{endpoint['targetRef']['name']}"] = {
+                    'namespace': endpoint['targetRef']['namespace'],
+                    'name': endpoint['targetRef']['name'],
+                }
+                print("    Conditions:")
+                print(check(f"      Ready: {endpoint['conditions']['ready']}", endpoint['conditions']['ready']))
+                print(check(f"      Serving: {endpoint['conditions']['serving']}", endpoint['conditions']['serving']))
+                print(f"      Terminating: {endpoint['conditions']['terminating']}")
 
-        print("  Ports:")
-        for port in endpointslice['ports']:
-            print(f"    Name: {port['name']}")
-            print(f"    Protocol: {port['protocol']}")
-            print(f"    Port: {port['port']}")
+            print("  Ports:")
+            for port in endpointslice['ports']:
+                print(f"    Name: {port['name']}")
+                print(f"    Protocol: {port['protocol']}")
+                print(f"    Port: {port['port']}")
 
     print()
     for pod in pods.values():
