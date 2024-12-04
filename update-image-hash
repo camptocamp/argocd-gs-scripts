@@ -38,7 +38,9 @@ def _update_images_sha(yaml: dict[str, Any], images_data: dict[str, dict[str, da
     for key, value in yaml.items():
         if key == "image":
             if "repository" in value and "tag" in value and not value.get("lock", False):
-                at_least = datetime.now() - timedelta(days=value.get("atleastOldDays", 0))
+                at_least = max(datetime.now() - timedelta(days=value.get("atleastOldDays", 0)),
+                 datetime.fromisoformat(value.get("atleastDate", "1970-01-01T00:00:00")))
+
                 shas = [
                     (sha, date)
                     for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
