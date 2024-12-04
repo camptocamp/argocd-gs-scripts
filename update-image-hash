@@ -127,7 +127,7 @@ def main() -> None:
                 sha = line.split(":")[2]
                 print("Get sha:", sha)
                 if sha not in images_data.get(image, {}):
-                    images_data.setdefault(image, {})[sha] = datetime.now().isoformat()
+                    images_data.setdefault(image, {})[sha] = datetime.now(timezone.utc)
 
                 # Delete the Docker images if the disk available space is under 5Gio
                 process = subprocess.run(
