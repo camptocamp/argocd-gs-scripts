@@ -38,21 +38,31 @@ def _update_images_sha(yaml: dict[str, Any], images_data: dict[str, dict[str, da
     for key, value in yaml.items():
         if key == "image":
             if "repository" in value and "tag" in value and not value.get("lock", False):
-                at_least = max(
-                    datetime.now(timezone.utc) - timedelta(days=value.get("atleastOldDays", 0)),
-                    value.get("atleastDate", datetime(1970, 1, 1, tzinfo=timezone.utc))
-                )
+                at_least_old = datetime.now(timezone.utc) - timedelta(days=value.get("atleastOldDays", 0))
+                at_least_new = value.get("atleastDate", datetime(1970, 1, 1, tzinfo=timezone.utc))
+                if at_least_new > at_least_old:
+                    shas = [
+                        (sha, date)
+                        for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
+                        if date >= at_least_new
+                    ]
+                    shas.sort(key=lambda x: x[1])
+                    # Only the older one
+                    sha = shas[0][0] if shas else None
 
-                shas = [
-                    (sha, date)
-                    for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
-                    if date <= at_least
-                ]
-                shas.sort(key=lambda x: x[1])
-                if shas:
+                else:
+                    shas = [
+                        (sha, date)
+                        for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
+                        if date <= at_least_old
+                    ]
+                    shas.sort(key=lambda x: x[1])
+                    # Only the newer one
+                    sha = shas[-1][0] if shas else None
+                if sha:
                     # for compatibility with bitnami charts
                     sha_key = "digest" if "digest" in value else "sha"
-                    value[sha_key] = shas[-1][0]
+                    value[sha_key] = sha
                     value.ca.items.clear()
                     value.ca.items[sha_key] = [
                         None,
