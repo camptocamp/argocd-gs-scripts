@@ -147,7 +147,7 @@ def main() -> None:
 
     for image, data in images_data.items():
         for sha, date in data.items():
-            data[sha] = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%f")
+            data[sha] = date
 
     for filename in glob.glob("**/*.yaml", recursive=True):
         if "/templates/" in filename:
