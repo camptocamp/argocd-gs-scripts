@@ -1,0 +1,28 @@
+from datetime import  datetime, timedelta, timezone
+import argparse
+import yaml
+
+def _main():
+    parser = argparse.ArgumentParser(description="Cleanup the data/images.yaml file.")
+    parser.add_argument("--days", type=int, default=60, help="The number of days to keep the images.")
+    args = parser.parse_args()
+
+    limit = datetime.now(timezone.utc) - timedelta(days=args.days)
+
+    with open("data/images.yaml") as f:
+        images = yaml.load(f, Loader=yaml.SafeLoader)
+
+    for repo, values in list(images.items()):
+        for hash, hash_date in list(values.items()):
+            if hash_date < limit:
+                del images[repo][hash]
+
+    for repo, values in list(images.items()):
+        if not values:
+            del images[repo]
+
+    with open("data/images.yaml", "w") as f:
+        yaml.dump(images, f)
+
+if __name__ == "__main__":
+    _main()
