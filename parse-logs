@@ -35,8 +35,9 @@ def print_line(line: str) -> None:
                 and "msg" in parsed
             ):
                 cur_time = datetime.datetime.fromtimestamp(parsed["timestamp"]).strftime("%H:%M:%S.%f")
+                file = f"{parsed['source_facility']}:{parsed.get('line', -1)}"
                 print(
-                    f"{cur_time} {color_level(parsed['level_name'])} {colorize(35, parsed['source_facility'])} {parsed['msg']}"
+                    f"{cur_time} {color_level(parsed['level_name'])} {colorize(35, file)} {parsed['msg']}"
                 )
                 if "full_message" in parsed:
                     print(parsed["full_message"])
