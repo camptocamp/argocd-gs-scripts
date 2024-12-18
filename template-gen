@@ -32,20 +32,32 @@ def main() -> None:
     argparser.add_argument("helmfile", help="The helmfile file")
     args = argparser.parse_args()
 
-    with open(args.helmfile, encoding="utf-8") as sops_config_file:
-        helmfile = yaml.safe_load(sops_config_file)
-        release = helmfile["releases"][args.index]
-
     base_dir = os.path.dirname(args.helmfile)
-    chart_dir = os.path.join(base_dir, release["chart"])
+    if args.helmfile.endswith("/values.yaml"):
+        chart_dir = base_dir
+        chart = "."
+        values = ["values.yaml"]
+        release_name = "unbearable-too-long-name"
+    else:
+        with open(args.helmfile, encoding="utf-8") as sops_config_file:
+            helmfile = yaml.safe_load(sops_config_file)
+            release = helmfile["releases"][args.index]
+
+        chart_dir = os.path.join(base_dir, release["chart"])
+        chart = release["chart"]
+        values = release.get("values", [])
+        release_name = release["name"]
+
+        del release
+
+    helm_command = [args.helm, "template", release_name, chart]
 
     if args.update:
         subprocess.run([args.helm, "dependency", "update"], check=True, cwd=chart_dir, stdout=sys.stderr)
-    helm_command = [args.helm, "template", f"{release['name']}", release["chart"]]
     if args.debug:
         helm_command.append("--debug")
     success = True
-    for value in release.get("values", []):
+    for value in values:
         value_path = os.path.join(base_dir, value)
         if not os.path.exists(value_path):
             success = False
@@ -75,7 +87,7 @@ def main() -> None:
             )
 
             all_values = {}
-            for values_file in release.get("values", []):
+            for values_file in values:
                 if secret_file_re.match(values_file) and not args.no_sops:
                     to_rm.append(os.path.join(base_dir, values_file) + ".decrypted")
                     process = subprocess.run(
@@ -95,7 +107,7 @@ def main() -> None:
             print(yaml.safe_dump(all_values))
             exit(0)
 
-        for values_file in release.get("values", []):
+        for values_file in values:
             if secret_file_re.match(values_file) and not args.no_sops:
                 to_rm.append(os.path.join(base_dir, values_file) + ".decrypted")
                 with open(
@@ -127,8 +139,8 @@ def main() -> None:
             else:
                 proc = subprocess.run(cmd, cwd=base_dir, stderr=subprocess.DEVNULL)
             if proc.returncode != 0:
-                chart_dir = os.path.join(base_dir, release["chart"])
-                subprocess.run(["helm", "dependency", "update"], cwd=chart_dir)
+                chart_dir = os.path.join(base_dir, chart)
+                subprocess.run([args.helm, "dependency", "update"], cwd=chart_dir)
             if args.output:
                 with open(args.output, "w", encoding="utf-8") as output_file:
                     proc = subprocess.run(cmd, cwd=base_dir, stdout=output_file)
