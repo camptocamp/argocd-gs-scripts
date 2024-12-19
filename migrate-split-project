@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+
+import argparse
+import glob
+from hmac import new
+from pathlib import Path
+from re import sub
+import subprocess
+import sys
+from typing import Any
+import yaml
+
+def _convert_values_filename(values_filename: str, chart: str) -> str:
+    if values_filename.startswith(".."):
+        return values_filename
+
+    if values_filename.startswith(f"./{chart}/"):
+        return f"./{values_filename[len(f'./{chart}/'):]}"
+    if values_filename.startswith(f"{chart}/"):
+        return values_filename[len(f'{chart}/'):]
+
+    raise ValueError(f"Invalid values filename {values_filename}")
+
+
+def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Path, dry_run: bool):
+    release_name = release["name"]
+
+    application_path = helmfile_path.parent
+    new_application_path = helmfile_path.parent.parent / release_name
+    new_helmfile_path = new_application_path / "helmfile.yaml"
+
+    if application_path != new_application_path:
+        if dry_run:
+            print(f"git mv {application_path} {new_application_path}")
+        else:
+            subprocess.run(["git", "mv", application_path, new_application_path])
+
+    if len(helmfile['releases']) > 1:
+        new_release = {**release, 'chart': '.'}
+        if 'values' in new_release:
+            new_release['values'] = [_convert_values_filename(v, release['chart']) for v in  new_release['values']]
+        new_helmfile = {
+            'repositories': helmfile['repositories'],
+            'releases': new_release,
+        }
+        if dry_run:
+            print("Create helmfile with:")
+            print(yaml.dump(new_helmfile))
+        else:
+            with open(new_helmfile_path, "w") as new_helmfile_file:
+                    yaml.dump(new_helmfile, new_helmfile_file)
+            subprocess.run(["git", "add", new_helmfile_path])
+    else:
+        if release['chart'] != '.' and new_helmfile_path != helmfile_path:
+            if dry_run:
+                print(f"git mv {helmfile_path} {new_helmfile_path}")
+            else:
+                subprocess.run(["git", "mv", helmfile_path, new_helmfile_path])
+
+def _main():
+    parser = argparse.ArgumentParser(description='Migration scrypt to split a helmfile project into multiple project')
+    parser.add_argument('--verify', action='store_true', help='Verify the migration')
+    parser.add_argument('--dry-run', action='store_true', help='Do not write files')
+    parser.add_argument('helmfile', nargs="?", type=str, help='Helmfile to migrate')
+    args = parser.parse_args()
+
+    if args.verify:
+        print('Verify projects')
+        for helmfile_filename in [*glob.glob("apps/int/**/helmfile.yaml", recursive=True), *glob.glob("apps/prod/**/helmfile.yaml", recursive=True)]:
+            with open(helmfile_filename) as helmfile_file:
+                helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
+
+            if len(helmfile["releases"]) > 1:
+                print(f'Project {helmfile_filename} is not splitted')
+                continue
+
+            for release in helmfile["releases"]:
+                if release["name"] != Path(helmfile_filename).parent.name:
+                    print(f'Project {helmfile_filename} is in the wrong folder, should be in {release["name"]}')
+                    continue
+        sys.exit(0)
+
+    else:
+        if not args.helmfile:
+            print('Please provide a folder to migrate')
+            sys.exit(1)
+
+        helmfile_path = Path(args.helmfile)
+        if not helmfile_path.exists():
+            print(f'{helmfile_path} does not exist')
+            sys.exit(1)
+
+        with open(helmfile_path) as helmfile_file:
+            helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
+
+        for release in helmfile["releases"]:
+            if release['chart'] != '.':
+                _move_application(release, helmfile, helmfile_path, args.dry_run)
+        for release in helmfile["releases"]:
+            if release['chart'] == '.':
+                _move_application(release, helmfile, helmfile_path, args.dry_run)
+
+if __name__ == '__main__':
+    _main()

@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+
+import argparse
+import glob
+import os
+import subprocess
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import ruamel.yaml.error
+from ruamel.yaml import YAML, CommentToken
+
+
+def _get_image_name(image_config: dict[str, str]) -> str:
+    image = f'{image_config["registry"]}/' if "registry" in image_config else ""
+    image += image_config["repository"]
+    if "tag" in image_config:
+        image += f':{image_config["tag"]}'
+    return image
+
+
+def _find_images(yaml: dict[str, Any], images: set[str], filename: str) -> None:
+    if not isinstance(yaml, dict):
+        return
+    for key, value in yaml.items():
+        if key == "image":
+            if "repository" in value and "tag" in value:
+                images.add(_get_image_name(value))
+            else:
+                print(f"::warning::{filename}: Unsupported image: {value}")
+        elif isinstance(value, dict):
+            _find_images(value, images, filename)
+
+
+def _update_images_sha(yaml: dict[str, Any], images_data: dict[str, dict[str, datetime]]) -> None:
+    if not isinstance(yaml, dict):
+        return
+    for key, value in yaml.items():
+        if key == "image":
+            if "repository" in value and "tag" in value and not value.get("lock", False):
+                at_least_old = datetime.now(timezone.utc) - timedelta(days=value.get("atleastOldDays", 0))
+                at_least_new = value.get("atleastDate", datetime(1970, 1, 1, tzinfo=timezone.utc))
+                if at_least_new > at_least_old:
+                    shas = [
+                        (sha, date)
+                        for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
+                        if date >= at_least_new
+                    ]
+                    shas.sort(key=lambda x: x[1])
+                    # Only the older one
+                    sha = shas[0][0] if shas else None
+
+                else:
+                    shas = [
+                        (sha, date)
+                        for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
+                        if date <= at_least_old
+                    ]
+                    shas.sort(key=lambda x: x[1])
+                    # Only the newer one
+                    sha = shas[-1][0] if shas else None
+                if sha:
+                    # for compatibility with bitnami charts
+                    sha_key = "digest" if "digest" in value else "sha"
+                    value[sha_key] = sha
+                    value.ca.items.clear()
+                    value.ca.items[sha_key] = [
+                        None,
+                        None,
+                        CommentToken(
+                            "# Managed by update-image-hash script\n\n",
+                            ruamel.yaml.error.CommentMark(0),
+                            None,
+                        ),
+                        None,
+                    ]
+
+        elif isinstance(value, dict):
+            _update_images_sha(value, images_data)
+
+
+class GitHubLogGroup:
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def __enter__(self) -> None:
+        print(f"::group::{self.message}")
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        del exc_type, exc_value, traceback
+        print("::endgroup::")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Update the images hash.")
+    args = parser.parse_args()
+
+    yaml = YAML()
+    yaml.default_flow_style = False
+
+    used_images = set()
+    for filename in glob.glob("**/*.yaml", recursive=True):
+        if "/templates/" in filename:
+            continue
+        basename = os.path.basename(filename)
+        if basename == "secrets.yaml" or basename.startswith("secrets-"):
+            continue
+        print(f"Open file: {filename}")
+        with open(filename, encoding="utf-8") as f:
+            values = yaml.load(f)
+            if "global" in values:
+                del values["global"]
+            _find_images(values, used_images, filename)
+
+    ghci_images = {}
+    for image in used_images:
+        print(f"Inspecting {image}")
+        if image.startswith("camptocamp/"):
+            image_name, image_tag = image.split(":", 1)
+            ghci_images[image] = {
+                "image": f'ghcr.io/{image_name}',
+                "tag": image_tag,
+            }
+
+    with open("data/ghci-images.yaml", "w", encoding="utf-8") as ghci_images_file:
+        yaml.dump(ghci_images, ghci_images_file)
+
+
+if __name__ == "__main__":
+    main()

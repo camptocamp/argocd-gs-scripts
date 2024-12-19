@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+
+import argparse
+import pathlib
+import subprocess
+
+
+def _main() ->None:
+    parser = argparse.ArgumentParser(description='Get maintainers of a project')
+    parser.parse_args()
+
+    # get sub folders
+    projects = {*pathlib.Path('apps/int').iterdir(), *pathlib.Path('apps/prod').iterdir(), *pathlib.Path('apps/values').iterdir()}
+    projects = {project.name for project in projects if project.is_dir()}
+
+    for project in projects:
+        authors = []
+        for section in ('int', 'prod', 'values'):
+            folder = pathlib.Path('apps') / section / project
+            if not folder.exists():
+                continue
+            authors_proc = subprocess.run(['git', 'log', '--pretty=format:%an', "-n100", folder], stdout=subprocess.PIPE, encoding='utf-8', check=True)
+            authors.extend(a for a in authors_proc.stdout.splitlines() if a not in ('c2c-bot-gis-ci-2', 'renovate[bot]', "CI", "c2c-bot-gis-ci"))
+        print(f"{project}: {', '.join(set(authors))}")
+
+if __name__ == '__main__':
+    _main()
