@@ -30,8 +30,7 @@ def _thread_helmfile_project(filename: Path) -> None:
         helmfile = yaml.safe_load(f.read())
 
     for nb, release in enumerate(helmfile["releases"]):
-        del release
-        with GitHubLogGroup(f"Process release {nb}"):
+        with GitHubLogGroup(f"Process release {release['name']}"):
             _thread_project([f"--index={nb}", filename])
 
 def _thread_project(args: list[str|Path]) -> None:
@@ -73,7 +72,7 @@ def main() -> None:
         directory_path = Path(directory_name)
         helmfile_path = directory_path / "helmfile.yaml"
         values_path = directory_path / "values.yaml"
-        
+
         if helmfile_path.exists():
             print(f"Process project {directory_path} as helmfile project.")
             _thread_helmfile_project(helmfile_path)

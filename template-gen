@@ -36,7 +36,7 @@ def main() -> None:
     if args.helmfile.endswith("/values.yaml"):
         chart_dir = base_dir
         chart = "."
-        values = ["values.yaml"]
+        values_filenames = ["values.yaml"]
         release_name = "unbearable-too-long-name"
     else:
         with open(args.helmfile, encoding="utf-8") as sops_config_file:
@@ -45,7 +45,7 @@ def main() -> None:
 
         chart_dir = os.path.join(base_dir, release["chart"])
         chart = release["chart"]
-        values = release.get("values", [])
+        values_filenames = release.get("values", [])
         release_name = release["name"]
 
         del release
@@ -57,7 +57,7 @@ def main() -> None:
     if args.debug:
         helm_command.append("--debug")
     success = True
-    for value in values:
+    for value in values_filenames:
         value_path = os.path.join(base_dir, value)
         if not os.path.exists(value_path):
             success = False
@@ -87,7 +87,7 @@ def main() -> None:
             )
 
             all_values = {}
-            for values_file in values:
+            for values_file in values_filenames:
                 if secret_file_re.match(values_file) and not args.no_sops:
                     to_rm.append(os.path.join(base_dir, values_file) + ".decrypted")
                     process = subprocess.run(
@@ -107,7 +107,7 @@ def main() -> None:
             print(yaml.safe_dump(all_values))
             exit(0)
 
-        for values_file in values:
+        for values_file in values_filenames:
             if secret_file_re.match(values_file) and not args.no_sops:
                 to_rm.append(os.path.join(base_dir, values_file) + ".decrypted")
                 with open(
