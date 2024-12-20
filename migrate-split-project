@@ -145,7 +145,6 @@ def _main():
                     helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
 
                 for release in helmfile["releases"]:
-                    if release['chart'] != '.':
                         destination = project_path.parent / release['name']
                         if destination in destinations:
                             print(f'Destination {destination} already used')
@@ -155,10 +154,14 @@ def _main():
                 if destination in destinations:
                     print(f'Destination {destination} already used')
                 destinations.add(destination)
-        print("Destionations")
-        print("-------------")
+        print("Destinations")
+        print("------------")
         for destination in destinations:
             print(destination)
+
+        print()
+        print(f'{len(destinations)} projects found')
+
         sys.exit(0)
 
     if not args.helmfile:
