@@ -49,7 +49,7 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
 
         new_helmfile = {
             'repositories': helmfile['repositories'],
-            'releases': new_release,
+            'releases': [new_release],
         }
         print(f"Create helmfile {new_helmfile_path}")
         if verbose:
@@ -62,7 +62,7 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
 
         new_helmfile_bis = {
             'repositories': helmfile['repositories'],
-            'releases': {**release, 'chart': '.'}, 'values': ['./values.yaml'],
+            'releases': [{**release, 'chart': '.', 'values': ['./values.yaml']}],
         }
         new_helmfile_bis_path = new_application_path / "helmfile.yaml"
         if new_helmfile_bis_path in to_remove:
@@ -110,14 +110,15 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
 
 def _main():
     parser = argparse.ArgumentParser(description='Migration scrypt to split a helmfile project into multiple project')
-    parser.add_argument('--verify', action='store_true', help='Verify the migration')
+    parser.add_argument('--status', action='store_true', help='List projects to migrate')
+    parser.add_argument('--verify', action='store_true', help='Verify destinations conflict')
     parser.add_argument('--dry-run', action='store_true', help='Do not write files')
     parser.add_argument('--verbose', action='store_true', help='Verbose output')
     parser.add_argument('helmfile', nargs="?", type=str, help='Helmfile to migrate')
     args = parser.parse_args()
 
-    if args.verify:
-        print('Verify projects')
+    if args.status:
+        print('Projects to migrate:')
         for helmfile_filename in [*glob.glob("apps/int/**/helmfile.yaml", recursive=True), *glob.glob("apps/prod/**/helmfile.yaml", recursive=True)]:
             with open(helmfile_filename) as helmfile_file:
                 helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
@@ -132,42 +133,73 @@ def _main():
                     continue
         sys.exit(0)
 
-    else:
-        if not args.helmfile:
-            print('Please provide a folder to migrate')
-            sys.exit(1)
+    if args.verify:
+        print('Verify destination conflict')
+        print('---------------------------')
+        destinations = set()
+        for projects_directory_name in [*glob.glob("apps/int/*/*/", recursive=True), *glob.glob("apps/prod/*/*/", recursive=True)]:
+            project_path = Path(projects_directory_name)
+            helmfile_path = project_path / "helmfile.yaml"
+            if helmfile_path.exists():
+                with open(helmfile_path) as helmfile_file:
+                    helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
 
-        helmfile_path = Path(args.helmfile)
-        if not helmfile_path.exists():
-            print(f'{helmfile_path} does not exist')
-            sys.exit(1)
+                for release in helmfile["releases"]:
+                    if release['chart'] != '.':
+                        destination = project_path.parent / release['name']
+                        if destination in destinations:
+                            print(f'Destination {destination} already used')
+                        destinations.add(destination)
+            else:
+                destination = project_path.parent / project_path.name
+                if destination in destinations:
+                    print(f'Destination {destination} already used')
+                destinations.add(destination)
+        print("Destionations")
+        print("-------------")
+        for destination in destinations:
+            print(destination)
+        sys.exit(0)
 
-        with open(helmfile_path) as helmfile_file:
-            helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
+    if not args.helmfile:
+        print('Please provide a folder to migrate')
+        sys.exit(1)
 
-        to_remove = {helmfile_path}
-        for release in helmfile["releases"]:
-            if release['chart'] != '.':
-                _move_application(release, helmfile, helmfile_path, to_remove, args.dry_run, args.verbose)
-        for release in helmfile["releases"]:
-            if release['chart'] == '.':
-                _move_application(release, helmfile, helmfile_path, to_remove, args.dry_run, args.verbose)
+    helmfile_path = Path(args.helmfile)
+    if not helmfile_path.exists():
+        print(f'{helmfile_path} does not exist')
+        sys.exit(1)
 
-        for folder_to_remove in to_remove:
-            print(f"git rm -r {folder_to_remove}")
-            if not args.dry_run:
-                subprocess.run(["git", "rm", "-r", folder_to_remove])
+    with open(helmfile_path) as helmfile_file:
+        helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
 
+    to_remove = {helmfile_path}
+    for release in helmfile["releases"]:
+        if release['chart'] != '.':
+            _move_application(release, helmfile, helmfile_path, to_remove, args.dry_run, args.verbose)
+    for release in helmfile["releases"]:
+        if release['chart'] == '.':
+            _move_application(release, helmfile, helmfile_path, to_remove, args.dry_run, args.verbose)
+
+    for folder_to_remove in to_remove:
+        print(f"git rm -r {folder_to_remove}")
         if not args.dry_run:
-            files = set()
-            for line in subprocess.run(["git", "status", "--porcelain"], stdout=subprocess.PIPE, encoding='utf-8').stdout.splitlines():
-                status, file_name = line.strip().split(' ', 1)
-                if status in ('M', 'A', 'R'):
-                    files.add(file_name)
-            subprocess.run(["pre-commit", "run", "--all-files", "merge-helm-values"])
-            subprocess.run(["pre-commit", "run", "--all-files", "end-of-file-fixer"])
-            subprocess.run(["pre-commit", "run", "--all-files", "prettier"])
-            subprocess.run(["git", "add", *files])
+            subprocess.run(["git", "rm", "-r", folder_to_remove])
+
+    if not args.dry_run:
+        files = set()
+        for line in subprocess.run(["git", "status", "--porcelain"], stdout=subprocess.PIPE, encoding='utf-8').stdout.splitlines():
+            status, file_name = line.strip().split(' ', 1)
+            if status in ('M', 'A', 'R', "AM"):
+                files.add(file_name)
+        subprocess.run(["pre-commit", "run", "--all-files", "merge-helm-values"])
+        subprocess.run(["pre-commit", "run", "--all-files", "end-of-file-fixer"])
+        subprocess.run(["pre-commit", "run", "--all-files", "prettier"])
+        for line in subprocess.run(["git", "status", "--porcelain"], stdout=subprocess.PIPE, encoding='utf-8').stdout.splitlines():
+            status, file_name = line.strip().split(' ', 1)
+            if status in ('M', 'A', 'R', "AM"):
+                files.add(file_name)
+        subprocess.run(["git", "add", *files])
 
 
 

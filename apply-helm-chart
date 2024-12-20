@@ -2,6 +2,7 @@
 
 import argparse
 import glob
+from pathlib import Path
 import subprocess
 import sys
 from typing import Any
@@ -24,49 +25,63 @@ class GitHubLogGroup:
             print(f"With {exc_value} error.")
 
 
+def _thread_helmfile_project(filename: Path) -> None:
+    with open(filename, encoding="utf-8") as f:
+        helmfile = yaml.safe_load(f.read())
+
+    for nb, release in enumerate(helmfile["releases"]):
+        del release
+        with GitHubLogGroup(f"Process release {nb}"):
+            _thread_project([f"--index={nb}", filename])
+
+def _thread_project(args: list[str|Path]) -> None:
+    try:
+        subprocess.run(
+            [
+                "scripts/template-gen",
+                "--debug",
+                "--no-sops",
+                "--output=output.yaml",
+                *args,
+            ],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        print("Error during templating.")
+        sys.exit(1)
+
+    try:
+        subprocess.run(
+            ["kubectl", "apply", "--filename=output.yaml"],
+            check=True,
+        )
+        subprocess.run(["kubectl", "delete", "--filename=output.yaml"])
+    except subprocess.CalledProcessError:
+        print("Error during apply.")
+        with open("output.yaml", encoding="utf-8") as f:
+            print(f.read())
+        sys.exit(1)
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test to apply the HELM charts.")
     parser.parse_args()
 
-    for filename in [
-        *glob.glob("apps/int/**/helmfile.yaml", recursive=True),
-        *glob.glob("apps/prod/**/helmfile.yaml", recursive=True),
+    for directory_name in [
+        *glob.glob("apps/int/*/*/", recursive=True),
+        *glob.glob("apps/prod/*/*/", recursive=True),
     ]:
-        with open(filename, encoding="utf-8") as f:
-            helmfile = yaml.safe_load(f.read())
-
-        with GitHubLogGroup(f"Process file: {filename}"):
-            for nb, release in enumerate(helmfile["releases"]):
-                del release
-
-                try:
-                    subprocess.run(
-                        [
-                            "scripts/template-gen",
-                            "--debug",
-                            "--no-sops",
-                            f"--index={nb}",
-                            "--output=output.yaml",
-                            filename,
-                        ],
-                        check=True,
-                    )
-                except subprocess.CalledProcessError:
-                    print("Error during templating.")
-                    sys.exit(1)
-
-                try:
-                    subprocess.run(
-                        ["kubectl", "apply", "--filename=output.yaml"],
-                        check=True,
-                    )
-                    subprocess.run(["kubectl", "delete", "--filename=output.yaml"])
-                except subprocess.CalledProcessError:
-                    print("Error during apply.")
-                    with open("output.yaml", encoding="utf-8") as f:
-                        print(f.read())
-                    sys.exit(1)
-
+        directory_path = Path(directory_name)
+        helmfile_path = directory_path / "helmfile.yaml"
+        values_path = directory_path / "values.yaml"
+        
+        if helmfile_path.exists():
+            print(f"Process project {directory_path} as helmfile project.")
+            _thread_helmfile_project(helmfile_path)
+        elif values_path.exists():
+            with GitHubLogGroup(f"Process project {directory_path} ad HELM chart project."):
+                _thread_project([values_path])
+        else:
+            print(f"Directory {directory_path} is not a project.")
 
 if __name__ == "__main__":
     main()
