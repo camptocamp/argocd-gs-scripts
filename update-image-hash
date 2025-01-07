@@ -6,6 +6,7 @@ import os
 import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Any
+import yaml
 
 import ruamel.yaml.error
 from ruamel.yaml import YAML, CommentToken
@@ -39,7 +40,9 @@ def _update_images_sha(yaml: dict[str, Any], images_data: dict[str, dict[str, da
         if key == "image":
             if "repository" in value and "tag" in value and not value.get("lock", False):
                 at_least_old = datetime.now(timezone.utc) - timedelta(days=value.get("atleastOldDays", 0))
-                at_least_new = value.get("atleastDate", datetime(1970, 1, 1, tzinfo=timezone.utc))
+                at_least_new = datetime(1970, 1, 1, tzinfo=timezone.utc)
+                if "atleastDate" in value:
+                    at_least_new = value["atleastDate"].astimezone()
                 if at_least_new > at_least_old:
                     shas = [
                         (sha, date)
@@ -93,12 +96,13 @@ class GitHubLogGroup:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Update the images hash.")
+    parser.add_argument("--no-pull", dest="pull", action="store_false", help="do not pull the images")
     parser.add_argument("images", metavar="IMAGES", nargs="*", help="the images to be updated")
     args = parser.parse_args()
 
     images = set(args.images)
-    yaml = YAML()
-    yaml.default_flow_style = False
+    ru_yaml = YAML()
+    ru_yaml.default_flow_style = False
 
     used_images = set()
     for filename in glob.glob("**/*.yaml", recursive=True):
@@ -109,7 +113,7 @@ def main() -> None:
             continue
         print(f"Open file: {filename}")
         with open(filename, encoding="utf-8") as f:
-            values = yaml.load(f)
+            values = ru_yaml.load(f)
             if "global" in values:
                 del values["global"]
             _find_images(values, used_images, filename)
@@ -123,37 +127,40 @@ def main() -> None:
         print("Nothing to update.")
         return
 
-    with open("data/images.yaml", encoding="utf-8") as f:
-        images_data = yaml.load(f)
+    if args.pull:
+        with open("data/images.yaml", encoding="utf-8") as f:
+            images_data = ru_yaml.load(f)
+            for image in images:
+                print(f"Process image: {image}")
+                try:
+                    process = subprocess.run(
+                        ["docker", "pull", image], stdout=subprocess.PIPE, encoding="utf-8", check=True
+                    )
 
-        for image in images:
-            print(f"Process image: {image}")
-            try:
-                process = subprocess.run(
-                    ["docker", "pull", image], stdout=subprocess.PIPE, encoding="utf-8", check=True
-                )
+                    line = [line for line in process.stdout.split("\n") if line.startswith("Digest:")][0]
+                    sha = line.split(":")[2]
+                    print("Get sha:", sha)
+                    if sha not in images_data.get(image, {}):
+                        images_data.setdefault(image, {})[sha] = datetime.now(timezone.utc)
 
-                line = [line for line in process.stdout.split("\n") if line.startswith("Digest:")][0]
-                sha = line.split(":")[2]
-                print("Get sha:", sha)
-                if sha not in images_data.get(image, {}):
-                    images_data.setdefault(image, {})[sha] = datetime.now(timezone.utc)
+                    # Delete the Docker images if the disk available space is under 5Gio
+                    process = subprocess.run(
+                        ["df", "--output=avail", "/"], stdout=subprocess.PIPE, encoding="utf-8", check=True
+                    )
+                    if int(process.stdout.split("\n")[1]) < 5 * 1024 * 1024:
+                        with GitHubLogGroup("Docker system prune"):
+                            subprocess.run(["docker", "system", "prune", "--all", "--force"], check=True)
+                except subprocess.CalledProcessError as exception:
+                    print(exception.cmd)
+                    print(exception.stdout)
+                    print(exception.stderr)
+                    print("::error::Unable to get the image: " + image)
 
-                # Delete the Docker images if the disk available space is under 5Gio
-                process = subprocess.run(
-                    ["df", "--output=avail", "/"], stdout=subprocess.PIPE, encoding="utf-8", check=True
-                )
-                if int(process.stdout.split("\n")[1]) < 5 * 1024 * 1024:
-                    with GitHubLogGroup("Docker system prune"):
-                        subprocess.run(["docker", "system", "prune", "--all", "--force"], check=True)
-            except subprocess.CalledProcessError as exception:
-                print(exception.cmd)
-                print(exception.stdout)
-                print(exception.stderr)
-                print("::error::Unable to get the image: " + image)
+        with open("data/images.yaml", "w", encoding="utf-8") as images_file:
+            ru_yaml.dump(images_data, images_file)
 
-    with open("data/images.yaml", "w", encoding="utf-8") as f:
-        yaml.dump(images_data, f)
+    with open("data/images.yaml", encoding="utf-8") as images_file:
+        images_data = yaml.load(images_file, Loader=yaml.SafeLoader)
 
     for image, data in images_data.items():
         for sha, date in data.items():
@@ -167,10 +174,10 @@ def main() -> None:
             continue
         print(f"Open file: {filename}")
         with open(filename, encoding="utf-8") as f:
-            values = yaml.load(f)
+            values = ru_yaml.load(f)
             _update_images_sha(values, images_data)
         with open(filename, "w", encoding="utf-8") as f:
-            yaml.dump(values, f)
+            ru_yaml.dump(values, f)
 
 
 if __name__ == "__main__":
