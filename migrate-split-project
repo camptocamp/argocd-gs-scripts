@@ -96,20 +96,21 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
                         yaml.dump(helmfile, new_helmfile_file)
 
         else:
-            print("The chart path should be '.'")
+            print(f"The chart path should be '.' instead of '{release['chart']}'")
             sys.exit(1)
 
     new_values_path = new_application_path / "values.yaml"
     if new_values_path.exists():
         print(f"Extra values file found {new_values_path}")
         sys.exit(1)
-    with new_values_path.open("w") as new_values_file:
-        new_values_file.write("{}")
+    if not dry_run:
+        with new_values_path.open("w") as new_values_file:
+            new_values_file.write("{}")
     subprocess.run(["git", "add", new_values_path])
 
 
 def _main():
-    parser = argparse.ArgumentParser(description='Migration scrypt to split a helmfile project into multiple project')
+    parser = argparse.ArgumentParser(description='Migration script to split a helmfile project into multiple project')
     parser.add_argument('--status', action='store_true', help='List projects to migrate')
     parser.add_argument('--verify', action='store_true', help='Verify destinations conflict')
     parser.add_argument('--dry-run', action='store_true', help='Do not write files')
