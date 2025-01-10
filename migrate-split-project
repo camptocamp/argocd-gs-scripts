@@ -9,16 +9,20 @@ import sys
 from typing import Any
 import yaml
 
-def _convert_values_filename(values_filename: str, chart: str) -> str:
+def _convert_values_filename(values_filename: str, chart: str = '.') -> str:
     if values_filename.startswith(".."):
         return values_filename
 
-    if values_filename == f"./{chart}/values.yaml":
-        return "./values-base.yaml"
-    if values_filename.startswith(f"./{chart}/"):
-        return f"./{values_filename[len(f'./{chart}/'):]}"
+    if chart == '.':
+        if values_filename == "./values.yaml":
+            return "./values-base.yaml"
+    else:
+        if values_filename == f"./{chart}/values.yaml":
+            return "./values-base.yaml"
+        if values_filename.startswith(f"./{chart}/"):
+            return f"./{values_filename[len(f'./{chart}/'):]}"
 
-    raise ValueError(f"Invalid values filename {values_filename}")
+    raise ValueError(f"Invalid values filename {values_filename}, chart {chart}")
 
 
 def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Path, to_remove: set[str], dry_run: bool, verbose: bool = False):
@@ -77,15 +81,19 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
             subprocess.run(["git", "add", new_helmfile_bis_path])
 
     else:
-        if release['chart'] != '.':
+        if release['chart'] == '.':
             print(f"git mv {helmfile_path} {new_helmfile_path}")
             if not dry_run:
                 subprocess.run(["git", "mv", helmfile_path, new_helmfile_path])
+                with open(new_helmfile_path) as new_helmfile_file:
+                    new_helmfile = yaml.load(new_helmfile_file, Loader=yaml.SafeLoader)
+                    new_release = new_helmfile['releases'][0]
+                    new_release['values'] = [_convert_values_filename(v) for v in  new_release['values']]
             values_path = new_helmfile_path.parent / "values.yaml"
             if values_path.exists():
-                print(f"git mv {values_path} {new_application_path / 'values.yaml'}")
+                print(f"git mv {values_path} {new_application_path / 'values-base.yaml'}")
                 if not dry_run:
-                    subprocess.run(["git", "mv", values_path, new_application_path / 'values.yaml'])
+                    subprocess.run(["git", "mv", values_path, new_application_path / 'values-base.yaml'])
             else:
                 print(f"cp {new_application_path / 'values.yaml'} {new_application_path / 'values-base.yaml'}")
                 if not dry_run:
@@ -95,12 +103,31 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
                     with open(new_helmfile_path, "w") as new_helmfile_file:
                         yaml.dump(helmfile, new_helmfile_file)
 
+            new_helmfile_bis = {
+                'repositories': helmfile['repositories'],
+                'releases': [{**release, 'chart': '.', 'values': ['./values.yaml']}],
+            }
+            new_helmfile_bis_path = new_application_path / "helmfile.yaml"
+            if new_helmfile_bis_path in to_remove:
+                to_remove.remove(new_helmfile_bis_path)
+            print(f"Create helmfile {new_helmfile_bis_path}")
+            if verbose:
+                print('With:')
+                print(yaml.dump(new_helmfile_bis))
+            if not dry_run:
+                with open(new_helmfile_bis_path, "w") as new_helmfile_bis_file:
+                        yaml.dump(new_helmfile_bis, new_helmfile_bis_file)
+                subprocess.run(["git", "add", new_helmfile_bis_path])
+
         else:
             print(f"The chart path should be '.' instead of '{release['chart']}'")
             sys.exit(1)
 
     new_values_path = new_application_path / "values.yaml"
-    if new_values_path.exists():
+    print(f"Create value file {new_values_path}")
+    if verbose:
+        print('With: {}')
+    if new_values_path.exists() and not dry_run:
         print(f"Extra values file found {new_values_path}")
         sys.exit(1)
     if not dry_run:
