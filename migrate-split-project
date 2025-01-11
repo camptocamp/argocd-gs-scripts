@@ -212,6 +212,10 @@ def _main():
                     'repositories': [],
                     'releases': [],
                 }, helmfile_file)
+        if (application_path / 'values.yaml').exists():
+            print(f"git mv {application_path / 'values.yaml'} {application_path / 'values-base.yaml'}")
+            if not args.dry_run:
+                subprocess.run(["git", "mv", application_path / 'values.yaml', application_path / 'values-base.yaml'])
         return
     for release in helmfile["releases"]:
         if release['chart'] != '.':
