@@ -200,6 +200,13 @@ def _main():
         helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
 
     to_remove = {helmfile_path}
+
+    if len(helmfile.get('releases', [])) == 0:
+        application_path = helmfile_path.parent
+        print(f"git mv {helmfile_path} {application_path / 'helmfile-base.yaml'}")
+        if not args.dry_run:
+            subprocess.run(["git", "mv", helmfile_path, application_path / 'helmfile-base.yaml'])
+        return
     for release in helmfile["releases"]:
         if release['chart'] != '.':
             _move_application(release, helmfile, helmfile_path, to_remove, args.dry_run, args.verbose)
