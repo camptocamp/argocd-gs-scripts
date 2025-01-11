@@ -203,9 +203,15 @@ def _main():
 
     if len(helmfile.get('releases', [])) == 0:
         application_path = helmfile_path.parent
+        to_remove.clear()
         print(f"git mv {helmfile_path} {application_path / 'helmfile-base.yaml'}")
         if not args.dry_run:
             subprocess.run(["git", "mv", helmfile_path, application_path / 'helmfile-base.yaml'])
+            with open(helmfile_path, 'w') as helmfile_file:
+                yaml.dump({
+                    'repositories': [],
+                    'releases': [],
+                }, helmfile_file)
         return
     for release in helmfile["releases"]:
         if release['chart'] != '.':
