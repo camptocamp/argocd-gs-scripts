@@ -1,4 +1,4 @@
-#!/usr/bin/env bash -ax
+#!/bin/bash -ex
 
 if [[ $(git status --porcelain) == "" ]]; then
     echo Nothing to commit
