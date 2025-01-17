@@ -128,7 +128,7 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
     if not dry_run:
         with new_values_path.open("w") as new_values_file:
             new_values_file.write("{}")
-    subprocess.run(["git", "add", new_values_path])
+    subprocess.run(["git", "add", new_values_path], check=True)
 
 
 def _main():
@@ -242,7 +242,7 @@ def _main():
             status, file_name = line.strip().split(' ', 1)
             if status in ('M', 'A', 'R', "AM"):
                 files.add(file_name)
-        subprocess.run(["git", "add", *files])
+        subprocess.run(["git", "add", *files], check=True)
 
 
 

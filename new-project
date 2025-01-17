@@ -38,7 +38,7 @@ if __name__ == "__main__":
     for section in ["values", "int", "prod"]:
         os.makedirs(f"""apps/{section}/{args.name}""", exist_ok=True)
         for filename in os.listdir(f"""apps/example/{section}"""):
-            if "geomapfish-" not in filename or f"geomapfish-{args.version.replace('.', '-')}" in filename:
+            if "gmf-" not in filename or f"gmf-{args.version.replace('.', '-')}" in filename:
                 if os.path.isdir(f"apps/example/{section}/{filename}"):
                     if os.path.exists(f"apps/{section}/{args.name}/{filename}"):
                         shutil.rmtree(f"apps/{section}/{args.name}/{filename}")
@@ -73,9 +73,3 @@ if __name__ == "__main__":
             check=False,
             stderr=subprocess.PIPE,
         )
-    print("# Secret files to be filed:")
-    for section in ["values", "int", "prod"]:
-        for filename in glob.glob(f"apps/{section}/{args.name}/**/secrets.yaml", recursive=True):
-            print(filename)
-        for filename in glob.glob(f"apps/{section}/{args.name}/**/secrets-*.yaml", recursive=True):
-            print(filename)

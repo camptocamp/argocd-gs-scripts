@@ -49,22 +49,25 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dry-run", action="store_true", help="Display the command to run without executing it"
     )
-    parser.add_argument("keyvault", help="The keyvault name")
-    parser.add_argument("database", nargs="?", help="The database nick name")
+    parser.add_argument("keyvault", nargs=1, help="The keyvault name")
+    parser.add_argument("database", nargs=1, help="The database nick name")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
-    decoded_secrets = _get_secrets(args.keyvault, args.database)
+    keyvault = args.keyvault[0]
+    database = args.database[0]
+
+    decoded_secrets = _get_secrets(keyvault, database)
 
     if args.odyssey:
-        short_name = args.keyvault[:-6] if args.keyvault.endswith("int-kv") else args.keyvault[:-7]
-        env = "int" if args.keyvault.endswith("int-kv") else "prod"
+        short_name = keyvault[:-6] if keyvault.endswith("int-kv") else keyvault[:-7]
+        env = "int" if keyvault.endswith("int-kv") else "prod"
         print(
             f"""
 To add in this file https://github.com/camptocamp/argocd-shelter-cluster-apps/blob/main/apps/prod/gs/ch/odyssey/secrets.yaml
 With SOPS:
 
-            {short_name}-{args.database}-{env}:
+            {short_name}-{database}-{env}:
                 storage: gmf_{env}
                 username: {decoded_secrets["username"]}
                 database: {decoded_secrets["database"]}
