@@ -9,7 +9,7 @@ import sys
 from typing import Any
 import yaml
 
-def _convert_values_filename(values_filename: str, chart: str = '.') -> str:
+def _convert_values_filename(values_filename: str, chart: str, source_dir: Path, dest_dir: Path, to_remove: set[str], dry_run: bool) -> str:
     if values_filename.startswith(".."):
         return values_filename
 
@@ -21,6 +21,20 @@ def _convert_values_filename(values_filename: str, chart: str = '.') -> str:
             return "./values-base.yaml"
         if values_filename.startswith(f"./{chart}/") or values_filename.startswith(f"{chart}/"):
             return f"./{values_filename[len(f'./{chart}/'):]}"
+        if values_filename.startswith(f"./"):
+            if source_dir != dest_dir:
+                new_value_filename = values_filename.replace(f'-{chart}' , '') if f'-{chart}' in values_filename else values_filename
+                if new_value_filename == './values.yaml':
+                    new_value_filename = './values-base.yaml'
+                source_value = source_dir / values_filename
+                dest_value = dest_dir / new_value_filename
+                print(f'cp {source_value} {dest_value}')
+                to_remove.add(source_value)
+                if not dry_run:
+                    shutil.copy(source_value, dest_value)
+                    subprocess.run(["git", "add", dest_value])
+                return new_value_filename
+            return values_filename
 
     raise ValueError(f"Invalid values filename {values_filename}, chart {chart}")
 
@@ -43,7 +57,7 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
     if len(helmfile['releases']) != 1:
         new_release = {**release, 'chart': '.'}
         if 'values' in new_release:
-            new_release['values'] = [_convert_values_filename(v, release['chart']) for v in  new_release['values']]
+            new_release['values'] = [_convert_values_filename(v, release['chart'], helmfile_path.parent, new_helmfile_path.parent, to_remove, dry_run) for v in  new_release['values']]
             for values_filename in new_release['values']:
                 if values_filename == './values-base.yaml':
                     print(f"git mv {new_application_path / 'values.yaml'} {new_application_path / 'values-base.yaml'}")
@@ -88,7 +102,7 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
                 with open(new_helmfile_path) as new_helmfile_file:
                     new_helmfile = yaml.load(new_helmfile_file, Loader=yaml.SafeLoader)
                     new_release = new_helmfile['releases'][0]
-                    new_release['values'] = [_convert_values_filename(v) for v in  new_release['values']]
+                    new_release['values'] = [_convert_values_filename(v, '.', helmfile_path.parent, new_helmfile_path.parent, to_remove, dry_run) for v in  new_release['values']]
             values_path = new_helmfile_path.parent / "values.yaml"
             if values_path.exists():
                 print(f"git mv {values_path} {new_application_path / 'values-base.yaml'}")
@@ -128,7 +142,7 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
     if not dry_run:
         with new_values_path.open("w") as new_values_file:
             new_values_file.write("{}")
-    subprocess.run(["git", "add", new_values_path], check=True)
+        subprocess.run(["git", "add", new_values_path], check=True)
 
 
 def _main():
