@@ -168,6 +168,14 @@ def _main():
                 if release["name"] != Path(helmfile_filename).parent.name:
                     print(f'Project {helmfile_filename} is in the wrong folder, should be in {release["name"]}')
                     continue
+
+                if len(release["values"]) > 1:
+                    print(f'Project {helmfile_filename} has multiple values file')
+                    continue
+
+                if release["values"][0] != "./values.yaml":
+                    print(f'Project {helmfile_filename} has a custom values file')
+                    continue
         sys.exit(0)
 
     if args.verify:
