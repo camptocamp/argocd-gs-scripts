@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 import yaml
+from pathlib import Path
 
 
 def main() -> None:
@@ -29,21 +30,25 @@ def main() -> None:
     argparser.add_argument(
         "--no-sops", help="Do not use sops to decide the secret files", action="store_true"
     )
-    argparser.add_argument("helmfile", help="The helmfile file")
+    argparser.add_argument("helmfile", help="The helmfile or Chart file")
     args = argparser.parse_args()
 
-    base_dir = os.path.dirname(args.helmfile)
-    if args.helmfile.endswith("/values.yaml"):
+    helmfile = Path(args.helmfile)
+
+    base_dir = helmfile.parent
+    if helmfile.name == "Chart.yaml":
         chart_dir = base_dir
         chart = "."
-        values_filenames = ["values.yaml"]
-        release_name = "unbearable-too-long-name"
+
+        values_path = base_dir / "values.yaml"
+        values_filenames = ["values.yaml"] if values_path.exists() else []
+        release_name = base_dir.name
     else:
         with open(args.helmfile, encoding="utf-8") as sops_config_file:
             helmfile = yaml.safe_load(sops_config_file)
             release = helmfile["releases"][args.index]
 
-        chart_dir = os.path.join(base_dir, release["chart"])
+        chart_dir = base_dir / release["chart"]
         chart = release["chart"]
         values_filenames = release.get("values", [])
         release_name = release["name"]
@@ -58,8 +63,8 @@ def main() -> None:
         helm_command.append("--debug")
     success = True
     for value in values_filenames:
-        value_path = os.path.join(base_dir, value)
-        if not os.path.exists(value_path):
+        value_path = base_dir / value
+        if not value_path.exists():
             success = False
             print(f"File {value_path} not found")
     if not success:
@@ -67,10 +72,9 @@ def main() -> None:
 
     values = []
     to_rm = []
-    with open(
-        os.path.normpath(os.path.join(os.path.dirname(__file__), "../.sops.yaml")), encoding="utf-8"
-    ) as sops_config_file:
-        sops_config = yaml.safe_load(sops_config_file)
+    sops_config = yaml.safe_load(
+        (Path(__file__).parent.parent / ".sops.yaml").read_text(encoding="utf-8")
+    )
     secret_file_re = re.compile(sops_config["creation_rules"][0]["path_regex"])
     try:
         if args.values:
@@ -89,17 +93,17 @@ def main() -> None:
             all_values = {}
             for values_file in values_filenames:
                 if secret_file_re.match(values_file) and not args.no_sops:
-                    to_rm.append(os.path.join(base_dir, values_file) + ".decrypted")
+                    decrypted_file = base_dir / (values_file + ".decrypted")
+                    to_rm.append(decrypted_file)
                     process = subprocess.run(
-                        ["sops", "--decrypt", os.path.normpath(os.path.join(base_dir, values_file))],
+                        ["sops", "--decrypt", str(base_dir / values_file)],
                         stdout=subprocess.PIPE,
                         encoding="utf-8",
                     )
                     next_values = yaml.safe_load(process.stdout)
                 else:
-                    with open(
-                        os.path.normpath(os.path.join(base_dir, values_file)), encoding="utf-8"
-                    ) as values_file:
+                    values_file = base_dir / values_file
+                    with values_file.open(encoding="utf-8") as f:
                         next_values = yaml.safe_load(values_file.read())
 
                 merger.merge(all_values, next_values)
@@ -109,14 +113,11 @@ def main() -> None:
 
         for values_file in values_filenames:
             if secret_file_re.match(values_file) and not args.no_sops:
-                to_rm.append(os.path.join(base_dir, values_file) + ".decrypted")
-                with open(
-                    os.path.normpath(os.path.join(base_dir, values_file) + ".decrypted"),
-                    "w",
-                    encoding="utf-8",
-                ) as sops_file:
+                decrypted_file = base_dir / values_file + ".decrypted"
+                to_rm.append(str(decrypted_file) + ".decrypted")
+                with open(decrypted_file.with_suffix(decrypted_file.suffix + ".decrypted"), "w", encoding="utf-8") as sops_file:
                     subprocess.run(
-                        ["sops", "--decrypt", os.path.normpath(os.path.join(base_dir, values_file))],
+                        ["sops", "--decrypt", str(decrypted_file)],
                         stdout=sops_file,
                     )
                 values.append(values_file + ".decrypted")
@@ -139,7 +140,7 @@ def main() -> None:
             else:
                 proc = subprocess.run(cmd, cwd=base_dir, stderr=subprocess.DEVNULL)
             if proc.returncode != 0:
-                chart_dir = os.path.join(base_dir, chart)
+                chart_dir = base_dir / chart
                 subprocess.run([args.helm, "dependency", "update"], cwd=chart_dir)
             if args.output:
                 with open(args.output, "w", encoding="utf-8") as output_file:
@@ -150,7 +151,7 @@ def main() -> None:
 
     finally:
         for file_ in to_rm:
-            if os.path.exists(file_):
+            if Path(file_).exists():
                 os.remove(file_)
 
 
