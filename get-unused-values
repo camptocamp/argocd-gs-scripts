@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+
+import argparse
+import glob
+import yaml
+from pathlib import Path
+
+def _main():
+    parser = argparse.ArgumentParser(description="Get the values files that not used in any Helmfiles.")
+    parser.add_argument("folder", default=["values"], nargs='*', help="The folder to search for the values files.")
+    args = parser.parse_args()
+
+    used_values_path = set()
+    for filename in [*glob.glob("**/helmfile.yaml", recursive=True), *glob.glob("**/helmfile-*.yaml", recursive=True)]:
+        helmfile = Path(filename)
+        base_dir = helmfile.parent
+        with helmfile.open(encoding="utf-8") as f:
+            values = yaml.safe_load(f)
+            for release in values.get("releases", []):
+                for value in release.get("values", []):
+                        used_values_path.add((base_dir / value).resolve())
+
+    for folder in args.folder:
+        for filename in [
+        *glob.glob(f"{folder}/**/values.yaml", recursive=True),
+        *glob.glob(f"{folder}/**/values-*.yaml", recursive=True),
+        *glob.glob(f"{folder}/**/secrets.yaml", recursive=True),
+        *glob.glob(f"{folder}/**/secrets-*.yaml", recursive=True)
+        ]:
+            if Path(filename).absolute() not in used_values_path:
+                print(filename)
+
+if __name__ == "__main__":
+    _main()
