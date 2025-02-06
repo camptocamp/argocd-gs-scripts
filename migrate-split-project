@@ -3,11 +3,13 @@
 import argparse
 import glob
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
 from typing import Any
 import yaml
+import ruamel.yaml
 
 def _convert_values_filename(values_filename: str, chart: str, source_dir: Path, dest_dir: Path, files_to_remove: set[str], dry_run: bool) -> str:
     if values_filename.startswith(".."):
@@ -149,6 +151,9 @@ def _main():
     parser = argparse.ArgumentParser(description='Migration script to split a helmfile project into multiple project')
     parser.add_argument('--status', action='store_true', help='List projects to migrate')
     parser.add_argument('--verify', action='store_true', help='Verify destinations conflict')
+    parser.add_argument('--finalize-status', action='store_true', help='List projects to finalize')
+    parser.add_argument('--finalize', help='Finalization: remove the helmfile.yaml and the repository in the helmfile-base.yaml, base folder to finalize')
+    parser.add_argument('--commit-message', help='Commit message')
     parser.add_argument('--dry-run', action='store_true', help='Do not write files')
     parser.add_argument('--verbose', action='store_true', help='Verbose output')
     parser.add_argument('helmfile', nargs="?", type=str, help='Helmfile to migrate')
@@ -208,6 +213,58 @@ def _main():
         print(f'{len(destinations)} projects found')
 
         sys.exit(0)
+
+    if args.finalize_status:
+        print('Projects to finalize:')
+        for helmfile_filename in [*glob.glob("apps/int/**/helmfile-base.yaml", recursive=True), *glob.glob("apps/prod/**/helmfile-base.yaml", recursive=True)]:
+            with open(helmfile_filename) as helmfile_file:
+                helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
+
+            if 'repositories' in helmfile:
+                print(f'Project {helmfile_filename} still have repositories')
+
+            helmfile_yaml = Path(helmfile_filename).parent / 'helmfile.yaml'
+            if helmfile_yaml.exists():
+                print(f'Project {helmfile_filename} still have a helmfile.yaml')
+
+        sys.exit(0)
+
+    if args.finalize is not None:
+      commits_files = []
+      for helmfile_filename in glob.glob(f"{args.finalize}/**/helmfile-base.yaml", recursive=True):
+        helmfile_path = Path(helmfile_filename)
+        if not helmfile_path.exists():
+            print(f'{helmfile_path} does not exist')
+            sys.exit(1)
+
+        ruamel_yaml = ruamel.yaml.YAML()
+        with open(helmfile_path) as helmfile_file:
+            helmfile = ruamel_yaml.load(helmfile_file)
+
+        if 'repositories' in helmfile:
+            print(f'Remove repositories from {helmfile_path}')
+            helmfile.pop('repositories')
+            if not args.dry_run:
+                with open(helmfile_path, 'w') as helmfile_file:
+                    ruamel_yaml.dump(helmfile, helmfile_file)
+                commits_files.append(helmfile_path)
+
+
+        helmfile_yaml = helmfile_path.parent / 'helmfile.yaml'
+        if helmfile_yaml.exists():
+            print(f"git rm {helmfile_yaml}")
+            if not args.dry_run:
+                subprocess.run(["git", "rm", helmfile_yaml], check=True)
+
+
+      if not args.dry_run and args.commit_message:
+        subprocess.run(["git", "add", *commits_files], check=True)
+        proc = subprocess.run(["git", "commit", "-m", args.commit_message], check=False)
+        if proc.returncode != 0:
+            subprocess.run(["git", "add", *commits_files], check=True)
+            proc = subprocess.run(["git", "commit", "-m", args.commit_message], check=True)
+      sys.exit(0)
+
 
     if not args.helmfile:
         print('Please provide a folder to migrate')
