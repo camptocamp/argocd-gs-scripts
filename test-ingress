@@ -57,6 +57,9 @@ def _main():
         if arguments.path.startswith(path) and len(path) > len(choose_path or ''):
             choose_path = path
 
+    if choose_path is None:
+        print(f"Path {arguments.path} not found, available paths are: {', '.join(all_paths)}")
+        return
     ingress = essential[choose_path]
 
     print()
@@ -74,6 +77,18 @@ def _main():
             print("  Status:")
             for line in yaml.dump(item['status'], default_flow_style=False).strip().split('\n'):
                 print(f"    {line}")
+
+    certificate = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'certificates', ingress['name'] ,'--output=json'],
+                                        stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+    certificate_ready = True
+    for condition in certificate['status']['conditions']:
+        if condition.get('status') != 'True':
+            print(check(f"Certificate: {certificate['metadata']['name']} is not ready, {condition['message']}", False))
+            certificate_ready = False
+    if certificate_ready:
+            print(check(f"Certificate: {certificate['metadata']['name']} is ready", True))
+    else:
+        exit(1)
 
     service = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'services', ingress["service"], '--output=json'],
                                         stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
@@ -155,6 +170,9 @@ def _main():
                 print(f"      Terminating: {endpoint['conditions']['terminating']}")
 
             print("  Ports:")
+            if endpointslice.get('ports') is None:
+                print(check("    No ports found for this service Endpointslice, this probably means that there are no ready pods.", False))
+                continue
             for port in endpointslice['ports']:
                 print(f"    Name: {port['name']}")
                 print(f"    Protocol: {port['protocol']}")
