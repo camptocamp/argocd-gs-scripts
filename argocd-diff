@@ -53,7 +53,7 @@ def main() -> None:
         if file.startswith("apps/int/") or file.startswith("apps/prod/"):
             file_split = file.split("/")
             if len(file_split) >= 4:
-                app_prefix.append(f"gmf-{file_split[2]}-{file_split[1]}-{file_split[3]}-")
+                app_prefix.append(f"gmf-{file_split[2]}-{file_split[1]}-{file_split[3]}")
             else:
                 app_prefix.append(f"gmf-{file_split[2]}-{file_split[1]}-")
         elif file.startswith("apps/values/"):
@@ -62,6 +62,17 @@ def main() -> None:
         elif file.startswith("values/"):
             all_app = True
             break
+
+    if all_app:
+        print("All applications will be checked")
+    else:
+        if app_prefix:
+            print(f"Applications to be checked:")
+            for prefix in app_prefix:
+                print(f"  - {prefix}")
+        else:
+            print("No application to be checked")
+    print()
 
     app_list = json.loads(
         subprocess.run(
