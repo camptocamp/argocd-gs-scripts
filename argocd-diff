@@ -48,17 +48,17 @@ def main() -> None:
 
     files = _get_pr_files()
     all_app = False
-    app_prefix = []
+    app_prefix = set()
     for file in files:
         if file.startswith("apps/int/") or file.startswith("apps/prod/"):
             file_split = file.split("/")
             if len(file_split) >= 4:
-                app_prefix.append(f"gmf-{file_split[2]}-{file_split[1]}-{file_split[3]}")
+                app_prefix.add(f"gmf-{file_split[2]}-{file_split[1]}-{file_split[3]}")
             else:
-                app_prefix.append(f"gmf-{file_split[2]}-{file_split[1]}-")
+                app_prefix.add(f"gmf-{file_split[2]}-{file_split[1]}-")
         elif file.startswith("apps/values/"):
             file_split = file.split("/")
-            app_prefix.append(f"gmf-{file_split[2]}-")
+            app_prefix.add(f"gmf-{file_split[2]}-")
         elif file.startswith("values/"):
             all_app = True
             break
