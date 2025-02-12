@@ -72,6 +72,7 @@ def main() -> None:
                 print(f"  - {prefix}")
         else:
             print("No application to be checked")
+            return
     print()
 
     app_list = json.loads(
@@ -98,7 +99,7 @@ def main() -> None:
                     accept = True
                     break
             if not accept:
-                print(f"The application {app} is skipped")
+                #print(f"The application {app} is skipped")
                 continue
 
         accept = False
