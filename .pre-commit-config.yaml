@@ -83,3 +83,11 @@ repos:
     rev: 38.142.2
     hooks:
       - id: renovate-config-validator
+  - repo: https://github.com/sbrunner/jsonschema-validator
+    rev: 1.0.0
+    hooks:
+      - id: jsonschema-validator
+        files: |-
+          (?x)^(
+
+          )$
