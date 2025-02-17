@@ -16,7 +16,7 @@ def _convert_values_filename(values_filename: str, chart: str, source_dir: Path,
         return values_filename
 
     if chart == '.':
-        if values_filename in ("./values.yaml", "values.yaml"):
+        if values_filename in ("./values.yaml", "values.yaml", "./values-base.yaml", "values-base.yaml"):
             return "./values-base.yaml"
     else:
         if values_filename in (f"./{chart}/values.yaml", f"{chart}/values.yaml"):
