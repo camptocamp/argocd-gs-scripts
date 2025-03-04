@@ -72,10 +72,12 @@ def main() -> None:
 
     values = []
     to_rm = []
-    sops_config = yaml.safe_load(
-        (Path(__file__).parent.parent / ".sops.yaml").read_text(encoding="utf-8")
-    )
-    secret_file_re = re.compile(sops_config["creation_rules"][0]["path_regex"])
+    no_sops = args.no_sops
+    sops_path = Path(__file__).parent.parent / ".sops.yaml"
+    if sops_path.exists():
+        sops_config = yaml.safe_load(        sops_path.read_text(encoding="utf-8")    )
+        secret_file_re = re.compile(sops_config["creation_rules"][0]["path_regex"])
+        no_sops = True
     try:
         if args.values:
             from deepmerge import Merger
@@ -92,7 +94,7 @@ def main() -> None:
 
             all_values = {}
             for values_file in values_filenames:
-                if secret_file_re.match(values_file) and not args.no_sops:
+                if not no_sops and secret_file_re.match(values_file):
                     decrypted_file = base_dir / (values_file + ".decrypted")
                     to_rm.append(decrypted_file)
                     process = subprocess.run(
