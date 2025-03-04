@@ -114,7 +114,7 @@ def main() -> None:
             exit(0)
 
         for values_file in values_filenames:
-            if secret_file_re.match(values_file) and not args.no_sops:
+            if not no_sops and secret_file_re.match(values_file):
                 decrypted_file = base_dir / values_file + ".decrypted"
                 to_rm.append(str(decrypted_file) + ".decrypted")
                 with open(decrypted_file.with_suffix(decrypted_file.suffix + ".decrypted"), "w", encoding="utf-8") as sops_file:
