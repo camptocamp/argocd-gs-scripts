@@ -50,12 +50,20 @@ if __name__ == "__main__":
         "--dry-run", action="store_true", help="Display the command to run without executing it"
     )
     parser.add_argument("keyvault", nargs=1, help="The keyvault name")
-    parser.add_argument("database", nargs=1, help="The database nick name")
+    # optional argument
+    parser.add_argument("database", nargs='?', help="The database nick name")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
     keyvault = args.keyvault[0]
-    database = args.database[0]
+    if args.database is None:
+        proc = subprocess.run(["az", "keyvault", "secret", "list", f"--vault-name={keyvault}"], check=True, stdout=subprocess.PIPE)
+        print("Available databases:")
+        for secret in json.loads(proc.stdout):
+            if secret["name"].startswith("pg-") and secret["name"].endswith("-database"):
+                print(secret["name"][len("pg-"):-len("-database")])
+        sys.exit(0)
+    database = args.database
 
     decoded_secrets = _get_secrets(keyvault, database)
 
