@@ -12,17 +12,22 @@ from webbrowser import get
 
 
 def _get_secret(keyvault: str, keyvault_key: str) -> str:
-    json_str=  subprocess.run([
-                            "az",
-                    "keyvault",
-                    "secret",
-                    "show",
-                    f"--vault-name={keyvault}",
-                    f"--name={keyvault_key}",
-    ], stdout=subprocess.PIPE, encoding="utf-8", check=True).stdout
+    try:
+        json_str=  subprocess.run([
+                                "az",
+                        "keyvault",
+                        "secret",
+                        "show",
+                        f"--vault-name={keyvault}",
+                        f"--name={keyvault_key}",
+        ], stdout=subprocess.PIPE, encoding="utf-8", check=True).stdout
+    except subprocess.CalledProcessError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
     return json.loads(json_str)["value"]
 
-def _get_secrets(keyvault: str, database: str) -> dict[str, str]:
+# Also used by pg-restore
+def get_secrets(keyvault: str, database: str) -> dict[str, str]:
     return {
         "database": _get_secret(keyvault, f"pg-{database}-database"),
         "username": _get_secret(keyvault, f"pg-{database}-username"),
@@ -30,7 +35,8 @@ def _get_secrets(keyvault: str, database: str) -> dict[str, str]:
     }
 
 
-def _get_env(decoded_secrets: dict[str, str]) -> dict[str, str]:
+# Also used by pg-restore
+def get_env(decoded_secrets: dict[str, str]) -> dict[str, str]:
     return {
         "PGHOST": "odyssey.apps.gs-ch-prod.camptocamp.com",
         "PGPORT": "5432",
@@ -50,7 +56,6 @@ if __name__ == "__main__":
         "--dry-run", action="store_true", help="Display the command to run without executing it"
     )
     parser.add_argument("keyvault", nargs=1, help="The keyvault name")
-    # optional argument
     parser.add_argument("database", nargs='?', help="The database nick name")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -65,7 +70,7 @@ if __name__ == "__main__":
         sys.exit(0)
     database = args.database
 
-    decoded_secrets = _get_secrets(keyvault, database)
+    decoded_secrets = get_secrets(keyvault, database)
 
     if args.odyssey:
         short_name = keyvault[:-6] if keyvault.endswith("int-kv") else keyvault[:-7]
@@ -86,7 +91,7 @@ With SOPS:
         )
         sys.exit(0)
 
-    env = _get_env(decoded_secrets)
+    env = get_env(decoded_secrets)
     if args.display:
         for key, value in env.items():
             print(f"{key}={value}")

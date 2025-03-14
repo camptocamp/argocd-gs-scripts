@@ -17,14 +17,14 @@ Run pg_restore on the tools container like:
 scripts/pg_restore gmf-demo-int database-gmf-demo ../demo.backup -Fc --no-owner --no-privileges --verbose
 """
     )
-    parser.add_argument("namespace", help="The namespace")
-    parser.add_argument("secret", nargs="?", help="The secret name")
+    parser.add_argument("keyvault", nargs=1, help="The keyvault name")
+    parser.add_argument("database", nargs=1, help="The database nick name")
     parser.add_argument("backup_file", nargs="?", help="The backup file")
     parser.add_argument("--dry-run", action="store_true", help="Display the credentials")
     parser.add_argument("arguments", nargs=argparse.REMAINDER, help="The pg_restore arguments")
     args = parser.parse_args()
 
-    decoded_secrets = psql.get_secret(args.namespace, args.secret)
+    decoded_secrets = psql.get_secrets(args.keyvault[0], args.database[0])
 
     if args.backup_file is None:
         print("The backup file is required")
