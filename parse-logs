@@ -3,6 +3,7 @@
 Parse and display json logs as output by c2cwsgiutils applications. Just pipe the logs to this script. For example:
     oc logs -f prod-2-5-c2cgeoportal-geoportal-5cf5859df8-gxfb2 | ./parse_logs
 """
+import argparse
 import datetime
 import json
 import re
@@ -21,7 +22,7 @@ def color_level(level: str) -> str:
 
 
 def print_line(line: str) -> None:
-    line = line.split("\r")[-1]
+    line = line.strip().split("\r")[-1]
     if line.startswith("{"):
         try:
             match = TIMESTAMP_RE.match(line)
@@ -58,16 +59,37 @@ def print_line(line: str) -> None:
                 )
                 if "full_message" in parsed:
                     print(parsed["full_message"])
+            # For Nextcloud
+            elif isinstance(parsed.get("message"), dict) and "Message" in parsed['message']:
+                print(parsed['message']['Message'], end='\r\n')
+            elif "message" in parsed.keys():
+                print(parsed['level'], parsed['time'], parsed['message'], end='\r\n')
+                #print(parsed.keys(), end='\r\n')
+            # End for Nextcloud
             else:
-                print(line)
+                print(line.strip())
                 print(parsed.keys())
         except json.decoder.JSONDecodeError:
             print(line.rstrip("\n"))
-    else:
-        print(line.rstrip("\n"))
+    elif len(line.strip()) > 0:
+        print(line.strip().rstrip("\n"))
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        usage="kubectl logs ... | %(prog)s [options]",
+        description="Parse and display json logs as output by c2cwsgiutils applications. Just pipe the logs to this script.",
+        epilog=
+        "\n".join([
+            "Standard example:",
+        "kubectl -n gmf-mutualize-int logs --tail=10 deployments/amber-app-tcc | scripts/parse-logs",
+        "Example with Nextcloud:",
+        "kubectl -n gmf-morgescjl-int exec -ti deployments/nextcloud -- tail -n 10 -f data/nextcloud.log | scripts/parse-logs"
+        ]),
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    args = parser.parse_args()
+
     try:
         for line in sys.stdin:
             print_line(line)

@@ -103,5 +103,9 @@ With SOPS:
     print(f'Used database: {decoded_secrets["database"]}')
 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    proc = subprocess.run(args.command or ["psql"], env=env)  # pylint: disable=subprocess-run-check
+    try:
+        proc = subprocess.run(args.command or ["psql"], env=env, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr)  # pylint: disable=subprocess-run-check
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
     sys.exit(proc.returncode)
