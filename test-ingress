@@ -120,7 +120,6 @@ def _main():
 
     endpoints = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'endpoints', service_name, '--output=json'],
                                              stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
-    pods = {}
     print()
     print(title(f"Endpoints for {service_name}:"))
     if 'subsets' not in endpoints:
@@ -130,18 +129,15 @@ def _main():
             for address in endpoints.get('addresses', []):
                 print(f"  IP: {address['ip']}")
                 print(f"  {address['targetRef']['kind']}: {address['targetRef']['namespace']}:{address['targetRef']['name']}")
-                pods[f"{address['targetRef']['namespace']}:{address['targetRef']['name']}"] = {
-                    'namespace': address['targetRef']['namespace'],
-                    'name': address['targetRef']['name'],
-                }
             for port in endpoint['ports']:
                 print(f"  Port {port['port']}:")
                 print(f"    Name: {port.get('name')}")
 
     all_endpointslice = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'endpointslices', '--output=json'],
                                              stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+    pods = {}
     print()
-    print(f"Endpointslice for {service_name}:")
+    print(title(f"Endpointslice for {service_name}:"))
     for endpointslice in all_endpointslice['items']:
         found = False
         for ownerReference in endpointslice['metadata']['ownerReferences']:
@@ -179,22 +175,16 @@ def _main():
                 print(f"    Port: {port['port']}")
 
     print()
-    pods_raw = {
-        'items': []}
-    if pods:
-        for pod in pods.values():
-            pod_raw = json.loads(subprocess.run(['kubectl', f'--namespace={pod["namespace"]}', 'get', 'pods', pod["name"], '--output=json'],
-                                               stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
-            pods_raw['items'].append(pod_raw)
-    elif service.get('spec', {}).get('selector'):
-        # get pods with service selector labels
-        pods_raw = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'pods', '--output=json', f'--selector={",".join([f"{key}={value}" for key, value in service["spec"]["selector"].items()])}'],
-                                             stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+    pods_raw = {'items': []}
+    for pod in pods.values():
+        pod_raw = json.loads(subprocess.run(['kubectl', f'--namespace={pod["namespace"]}', 'get', 'pods', pod["name"], '--output=json'],
+                                            stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+        pods_raw['items'].append(pod_raw)
 
     if not pods_raw['items']:
         print(check("No pods found for this service, this probably means that there are no ready pods.", False))
     for pod_raw in pods_raw['items']:
-        print(title(f"{pod['namespace']}:{pod['name']}:"))
+        print(title(f"Pod {pod['namespace']}:{pod['name']}:"))
         print(check(f"  Status: {pod_raw['status']['phase']}", pod_raw['status']['phase'] == 'Running'))
         for condition in pod_raw['status']['conditions']:
             check(f"{condition['type']}: {condition['status']}", condition['status'] == 'True')
