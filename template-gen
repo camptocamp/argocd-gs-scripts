@@ -27,9 +27,6 @@ def main() -> None:
     argparser.add_argument("--dry-run", help="Run the command in dry-run mode", action="store_true")
     argparser.add_argument("--values", help="get the merged values", action="store_true")
     argparser.add_argument("--output", help="put the result in the given file")
-    argparser.add_argument(
-        "--no-sops", help="Do not use sops to decide the secret files", action="store_true"
-    )
     argparser.add_argument("helmfile", help="The helmfile or Chart file")
     args = argparser.parse_args()
 
@@ -43,17 +40,6 @@ def main() -> None:
         values_path = base_dir / "values.yaml"
         values_filenames = ["values.yaml"] if values_path.exists() else []
         release_name = base_dir.name
-    else:
-        with open(args.helmfile, encoding="utf-8") as sops_config_file:
-            helmfile = yaml.safe_load(sops_config_file)
-            release = helmfile["releases"][args.index]
-
-        chart_dir = base_dir / release["chart"]
-        chart = release["chart"]
-        values_filenames = release.get("values", [])
-        release_name = release["name"]
-
-        del release
 
     helm_command = [args.helm, "template", release_name, chart]
 
@@ -72,12 +58,6 @@ def main() -> None:
 
     values = []
     to_rm = []
-    no_sops = args.no_sops
-    sops_path = Path(__file__).parent.parent / ".sops.yaml"
-    if sops_path.exists():
-        sops_config = yaml.safe_load(        sops_path.read_text(encoding="utf-8")    )
-        secret_file_re = re.compile(sops_config["creation_rules"][0]["path_regex"])
-        no_sops = True
     try:
         if args.values:
             from deepmerge import Merger
@@ -94,19 +74,9 @@ def main() -> None:
 
             all_values = {}
             for values_file in values_filenames:
-                if not no_sops and secret_file_re.match(values_file):
-                    decrypted_file = base_dir / (values_file + ".decrypted")
-                    to_rm.append(decrypted_file)
-                    process = subprocess.run(
-                        ["sops", "--decrypt", str(base_dir / values_file)],
-                        stdout=subprocess.PIPE,
-                        encoding="utf-8",
-                    )
-                    next_values = yaml.safe_load(process.stdout)
-                else:
-                    values_file = base_dir / values_file
-                    with values_file.open(encoding="utf-8") as f:
-                        next_values = yaml.safe_load(values_file.read())
+                values_file = base_dir / values_file
+                with values_file.open(encoding="utf-8") as f:
+                    next_values = yaml.safe_load(f.read())
 
                 merger.merge(all_values, next_values)
 
@@ -114,17 +84,7 @@ def main() -> None:
             exit(0)
 
         for values_file in values_filenames:
-            if not no_sops and secret_file_re.match(values_file):
-                decrypted_file = base_dir / values_file + ".decrypted"
-                to_rm.append(str(decrypted_file) + ".decrypted")
-                with open(decrypted_file.with_suffix(decrypted_file.suffix + ".decrypted"), "w", encoding="utf-8") as sops_file:
-                    subprocess.run(
-                        ["sops", "--decrypt", str(decrypted_file)],
-                        stdout=sops_file,
-                    )
-                values.append(values_file + ".decrypted")
-            else:
-                values.append(values_file)
+            values.append(values_file)
 
         cmd = [
             *helm_command,
