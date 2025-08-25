@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import sys
 import json
 import subprocess
 import yaml
@@ -21,26 +22,49 @@ def _main():
     parser.add_argument('host', help='Host to diagnose')
     parser.add_argument('--path', default='/', help='Path to diagnose')
     parser.add_argument('--namespace', help='Namespace search on', action='append')
+    parser.add_argument('--all-namespaces', action='store_true',
+                        help='Search on all namespaces')
     arguments = parser.parse_args()
+
+    if not arguments.namespace and not arguments.all_namespaces:
+        print("Error: No namespace specified, use --namespace to specify the namespace to search on or --all-namespaces to search on all namespaces")
+        sys.exit(1)
+
+    namespaces = []
+    if arguments.all_namespaces:
+        namespaces = subprocess.run(['kubectl', 'get', 'namespaces', '--output=jsonpath={.items[*].metadata.name}'],
+                                             stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout.split()
+        if not namespaces:
+            print("Error: No namespaces found, please create a namespace first")
+            sys.exit(1)
+    else:
+        namespaces = arguments.namespace
 
     print(f'Host: {arguments.host}')
     print(f'Path: {arguments.path}')
-    print(f'Namespace: {", ".join(arguments.namespace)}')
+    print(f'Namespace: {", ".join(namespaces)}')
 
     #-o, --output='':
     #    Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file, #custom-columns, custom-columns-file, wide). See custom columns [https://kubernetes.io/docs/reference/kubectl/#custom-columns], golang template [http://golang.org/pkg/text/template/#pkg-overview] and jsonpath template [https://kubernetes.io/docs/reference/kubectl/jsonpath/].
 
     ingress_raw = {}
-    for namespace in arguments.namespace:
-        ingress_raw[namespace] = json.loads(subprocess.run(['kubectl', f'--namespace={namespace}', 'get', 'ingresses.networking.k8s.io',  '--output=json'],
-                                                        stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+    for namespace in namespaces:
+        try:
+            ingress_raw[namespace] = json.loads(subprocess.run(['kubectl', f'--namespace={namespace}', 'get', 'ingresses.networking.k8s.io',  '--output=json'],
+                                                            stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+        except subprocess.CalledProcessError:
+            print(f"Error: Failed to get ingresses for namespace {namespace}: ignoring.")
+            continue
+
+    print()
 
     all_paths = []
     essential = {}
     for namespace, ingresses in ingress_raw.items():
         for item in ingresses['items']:
             for rule in item['spec']['rules']:
-                if arguments.host in rule['host']:
+                if arguments.host == rule['host']:
+                    print(f'{fg.green}{fx.bold}Found ingress rule for host {namespace}:{item["metadata"]["name"]} for host {rule["host"]}{fx.reset}{fx.reset}')
                     for path in rule['http']['paths']:
                             all_paths.append(path['path']   )
                             essential[path['path']] ={
@@ -63,7 +87,7 @@ def _main():
     ingress = essential[choose_path]
 
     print()
-    print("Found ingress:")
+    print("Found Ingress:")
     for path, item in essential.items():
         print()
         print(title(f"{item['namespace']}:{item['name']}:"))
@@ -121,7 +145,7 @@ def _main():
     endpoints = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'endpoints', service_name, '--output=json'],
                                              stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
     print()
-    print(title(f"Endpoints for {service_name}:"))
+    print(title(f"Endpoints (deprecated) for {service_name}:"))
     if 'subsets' not in endpoints:
         print(check("  No endpoints found for this service, this probably means that there are no ready pods.", False))
     else:
