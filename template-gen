@@ -32,6 +32,15 @@ def main() -> None:
 
     helmfile = Path(args.helmfile)
 
+    if helmfile.name not in ["Chart.yaml", "helmfile.yaml"]:
+        if (helmfile / "Chart.yaml").exists():
+            helmfile = helmfile / "Chart.yaml"
+        elif (helmfile / "helmfile.yaml").exists():
+            helmfile = helmfile / "helmfile.yaml"
+        else:
+            print(f"File or project {helmfile} not found")
+            sys.exit(1)
+
     base_dir = helmfile.parent
     if helmfile.name == "Chart.yaml":
         chart_dir = base_dir
@@ -39,7 +48,16 @@ def main() -> None:
 
         values_path = base_dir / "values.yaml"
         values_filenames = ["values.yaml"] if values_path.exists() else []
-    release_name = base_dir.name
+        release_name = base_dir.name
+    elif helmfile.name == "helmfile.yaml":
+        with open(args.helmfile, encoding="utf-8") as sops_config_file:
+            helmfile = yaml.safe_load(sops_config_file)
+            release = helmfile["releases"][args.index]
+        chart_dir = base_dir / release["chart"]
+        chart = release["chart"]
+        values_filenames = release.get("values", [])
+        release_name = release["name"]
+
 
     helm_command = [args.helm, "template", release_name, chart]
 
