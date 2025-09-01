@@ -69,13 +69,9 @@ def main() -> None:
         *glob.glob("apps/prod/*/*/", recursive=True),
     ]:
         directory_path = Path(directory_name)
-        helmfile_path = directory_path / "helmfile.yaml"
         chart_path = directory_path / "Chart.yaml"
 
-        if helmfile_path.exists():
-            print(f"Process project {directory_path} as helmfile project.")
-            _thread_helmfile_project(helmfile_path)
-        elif chart_path.exists():
+        if chart_path.exists():
             with GitHubLogGroup(f"Process project {directory_path} as HELM chart project."):
                 _thread_project([chart_path])
         else:

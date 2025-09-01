@@ -32,37 +32,22 @@ def main() -> None:
 
     helmfile = Path(args.helmfile)
 
-    if helmfile.name not in ["Chart.yaml", "helmfile.yaml"]:
-        if (helmfile / "Chart.yaml").exists():
-            helmfile = helmfile / "Chart.yaml"
-        elif (helmfile / "helmfile.yaml").exists():
-            helmfile = helmfile / "helmfile.yaml"
-        else:
-            print(f"File or project {helmfile} not found")
-            sys.exit(1)
+    if helmfile.name != "Chart.yaml":
+        helmfile = helmfile / "Chart.yaml"
+
+    if not helmfile.exists():
+        print(f"File or project {helmfile} not found")
+        sys.exit(1)
 
     base_dir = helmfile.parent
-    if helmfile.name == "Chart.yaml":
-        chart_dir = base_dir
-        chart = "."
+    values_path = base_dir / "values.yaml"
+    values_filenames = ["values.yaml"] if values_path.exists() else []
+    release_name = base_dir.name
 
-        values_path = base_dir / "values.yaml"
-        values_filenames = ["values.yaml"] if values_path.exists() else []
-        release_name = base_dir.name
-    elif helmfile.name == "helmfile.yaml":
-        with open(args.helmfile, encoding="utf-8") as sops_config_file:
-            helmfile = yaml.safe_load(sops_config_file)
-            release = helmfile["releases"][args.index]
-        chart_dir = base_dir / release["chart"]
-        chart = release["chart"]
-        values_filenames = release.get("values", [])
-        release_name = release["name"]
-
-
-    helm_command = [args.helm, "template", release_name, chart]
+    helm_command = [args.helm, "template", release_name, '.']
 
     if args.update:
-        subprocess.run([args.helm, "dependency", "update"], check=True, cwd=chart_dir, stdout=sys.stderr)
+        subprocess.run([args.helm, "dependency", "update"], check=True, cwd=base_dir, stdout=sys.stderr)
     if args.debug:
         helm_command.append("--debug")
     success = True
@@ -120,8 +105,7 @@ def main() -> None:
             else:
                 proc = subprocess.run(cmd, cwd=base_dir, stderr=subprocess.DEVNULL)
             if proc.returncode != 0:
-                chart_dir = base_dir / chart
-                subprocess.run([args.helm, "dependency", "update"], cwd=chart_dir)
+                subprocess.run([args.helm, "dependency", "update"], cwd=base_dir)
             if args.output:
                 with open(args.output, "w", encoding="utf-8") as output_file:
                     proc = subprocess.run(cmd, cwd=base_dir, stdout=output_file)
