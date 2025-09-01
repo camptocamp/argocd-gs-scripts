@@ -39,7 +39,7 @@ def main() -> None:
 
         values_path = base_dir / "values.yaml"
         values_filenames = ["values.yaml"] if values_path.exists() else []
-        release_name = base_dir.name
+    release_name = base_dir.name
 
     helm_command = [args.helm, "template", release_name, chart]
 
