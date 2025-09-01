@@ -51,7 +51,6 @@ def main() -> None:
                         [
                             "scripts/template-gen",
                             "--debug",
-                            "--no-sops",
                             f"--index={nb}",
                             f"--output=kubescape/{filename_match.group(1)}-{filename_match.group(2)}-{filename_match.group(3)}-{nb}.yaml",
                             filename,

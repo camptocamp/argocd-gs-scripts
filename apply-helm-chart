@@ -39,7 +39,6 @@ def _thread_project(args: list[str|Path]) -> None:
             [
                 "scripts/template-gen",
                 "--debug",
-                "--no-sops",
                 "--output=output.yaml",
                 *args,
             ],

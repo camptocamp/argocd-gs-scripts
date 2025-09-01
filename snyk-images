@@ -109,7 +109,6 @@ def main() -> None:
                         subprocess.run(
                             [
                                 "scripts/template-gen",
-                                "--no-sops",
                                 f"--index={index}",
                                 os.path.join(app_details["spec"]["source"]["path"], "helmfile.yaml"),
                             ],
