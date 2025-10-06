@@ -3,13 +3,12 @@
 
 import argparse
 import os
-import re
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 import yaml
-from pathlib import Path
 
 
 def main() -> None:
@@ -18,14 +17,23 @@ def main() -> None:
     """
 
     argparser = argparse.ArgumentParser("Generate the k8s file from the template")
-    argparser.add_argument("--update", help="Don't run dependency update", action="store_true")
-    argparser.add_argument("--kube-version", help="The kubernetes version", default="1.25.0")
-    argparser.add_argument("--helm", help="The used helm command", default=os.environ.get("HELM", "helm"))
+    argparser.add_argument(
+        "--update", help="Don't run dependency update", action="store_true"
+    )
+    argparser.add_argument(
+        "--kube-version", help="The kubernetes version", default="1.25.0"
+    )
+    argparser.add_argument(
+        "--helm", help="The used helm command", default=os.environ.get("HELM", "helm")
+    )
     argparser.add_argument("--debug", help="Enable verbose output", action="store_true")
-    argparser.add_argument("--index", help="The release index present in the helmfile", default=0, type=int)
     argparser.add_argument("--namespace", help="The namespace", default="default")
-    argparser.add_argument("--dry-run", help="Run the command in dry-run mode", action="store_true")
-    argparser.add_argument("--values", help="get the merged values", action="store_true")
+    argparser.add_argument(
+        "--dry-run", help="Run the command in dry-run mode", action="store_true"
+    )
+    argparser.add_argument(
+        "--values", help="get the merged values", action="store_true"
+    )
     argparser.add_argument("--output", help="put the result in the given file")
     argparser.add_argument("helmfile", help="The helmfile or Chart file")
     args = argparser.parse_args()
@@ -44,10 +52,15 @@ def main() -> None:
     values_filenames = ["values.yaml"] if values_path.exists() else []
     release_name = base_dir.name
 
-    helm_command = [args.helm, "template", release_name, '.']
+    helm_command = [args.helm, "template", release_name, "."]
 
     if args.update:
-        subprocess.run([args.helm, "dependency", "update"], check=True, cwd=base_dir, stdout=sys.stderr)
+        subprocess.run(
+            [args.helm, "dependency", "update"],
+            check=True,
+            cwd=base_dir,
+            stdout=sys.stderr,
+        )
     if args.debug:
         helm_command.append("--debug")
     success = True
@@ -101,7 +114,9 @@ def main() -> None:
         else:
             if args.output:
                 with open(args.output, "w", encoding="utf-8") as output_file:
-                    proc = subprocess.run(cmd, cwd=base_dir, stdout=output_file, stderr=subprocess.DEVNULL)
+                    proc = subprocess.run(
+                        cmd, cwd=base_dir, stdout=output_file, stderr=subprocess.DEVNULL
+                    )
             else:
                 proc = subprocess.run(cmd, cwd=base_dir, stderr=subprocess.DEVNULL)
             if proc.returncode != 0:

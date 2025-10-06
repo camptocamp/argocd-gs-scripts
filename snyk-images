@@ -7,6 +7,7 @@ import subprocess
 import sys
 import traceback
 from collections.abc import Iterable
+from pathlib import Path
 
 import yaml
 
@@ -69,7 +70,8 @@ def main() -> None:
     apps = {
         app["metadata"]["name"]
         for app in app_list
-        if app["spec"]["source"]["repoURL"] == f"git@github.com:{os.environ['GITHUB_REPOSITORY']}.git"
+        if app["spec"]["source"]["repoURL"]
+        == f"git@github.com:{os.environ['GITHUB_REPOSITORY']}.git"
     }
 
     images = {}
@@ -93,38 +95,32 @@ def main() -> None:
         print(f"Get images from {app_name}")
         sys.stdout.flush()
 
-        helmfile_filename = os.path.join(app_details["spec"]["source"]["path"], "helmfile.yaml")
-        if os.path.exists(helmfile_filename):
+        project_path = Path(app_details["spec"]["source"]["path"])
+        helm_chart_path = project_path / "Chart.yaml"
+        if helm_chart_path.exists():
             # Run Helm template on each application
             # Extract all Docker images from generated Kubernetes manifest
-            with open(helmfile_filename, encoding="utf-8") as helmfile_file:
-                helmfile = yaml.load(
-                    helmfile_file.read(),
+            print(f"::group::Get images from {app_name}")
+            new_images = get_images(
+                yaml.load_all(
+                    subprocess.run(
+                        [
+                            "scripts/template-gen",
+                            helm_chart_path,
+                        ],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        encoding="utf-8",
+                    ).stdout,
                     Loader=yaml.SafeLoader,
                 )
-            for index in range(len(helmfile["releases"])):
-                print(f"::group::Get images from {app_name}[{index}]")
-                new_images = get_images(
-                    yaml.load_all(
-                        subprocess.run(
-                            [
-                                "scripts/template-gen",
-                                f"--index={index}",
-                                os.path.join(app_details["spec"]["source"]["path"], "helmfile.yaml"),
-                            ],
-                            check=True,
-                            stdout=subprocess.PIPE,
-                            encoding="utf-8",
-                        ).stdout,
-                        Loader=yaml.SafeLoader,
-                    )
-                )
-                print()
-                print("Found images:")
-                for image in new_images:
-                    print(image)
-                    images.setdefault(image, set()).add(app_name)
-                print("::endgroup::")
+            )
+            print()
+            print("Found images:")
+            for image in new_images:
+                print(image)
+                images.setdefault(image, set()).add(app_name)
+            print("::endgroup::")
         else:
             print(f'::warning::No helmfile.yaml found in "{app_name}"')
 
@@ -132,7 +128,10 @@ def main() -> None:
     env = {**os.environ}
     env["FORCE_COLOR"] = "true"
     env["SNYK_TOKEN"] = subprocess.run(
-        ["gopass", "show", "gs/ci/snyk/token"], stdout=subprocess.PIPE, check=True, encoding="utf-8"
+        ["gopass", "show", "gs/ci/snyk/token"],
+        stdout=subprocess.PIPE,
+        check=True,
+        encoding="utf-8",
     ).stdout.strip()
 
     image_index: dict[str, int] = {}
