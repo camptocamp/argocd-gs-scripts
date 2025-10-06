@@ -2,12 +2,10 @@
 
 import argparse
 import glob
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
-
-import yaml
 
 
 class GitHubLogGroup:
@@ -25,15 +23,7 @@ class GitHubLogGroup:
             print(f"With {exc_value} error.")
 
 
-def _thread_helmfile_project(filename: Path) -> None:
-    with open(filename, encoding="utf-8") as f:
-        helmfile = yaml.safe_load(f.read())
-
-    for nb, release in enumerate(helmfile["releases"]):
-        with GitHubLogGroup(f"Process release {release['name']}"):
-            _thread_project([f"--index={nb}", filename])
-
-def _thread_project(args: list[str|Path]) -> None:
+def _thread_project(args: list[str | Path]) -> None:
     try:
         subprocess.run(
             [
@@ -60,6 +50,7 @@ def _thread_project(args: list[str|Path]) -> None:
             print(f.read())
         sys.exit(1)
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test to apply the HELM charts.")
     parser.parse_args()
@@ -72,10 +63,13 @@ def main() -> None:
         chart_path = directory_path / "Chart.yaml"
 
         if chart_path.exists():
-            with GitHubLogGroup(f"Process project {directory_path} as HELM chart project."):
+            with GitHubLogGroup(
+                f"Process project {directory_path} as HELM chart project."
+            ):
                 _thread_project([chart_path])
         else:
             print(f"Directory {directory_path} is not a project.")
+
 
 if __name__ == "__main__":
     main()
