@@ -7,9 +7,9 @@ import re
 import subprocess
 import time
 
-from githubkit import GitHub
-import asyncio
 import yaml
+from githubkit import GitHub
+
 
 def _get_pr_files() -> list[str]:
     # Create GitHub client with your token
@@ -20,11 +20,7 @@ def _get_pr_files() -> list[str]:
     pr_number = int(os.environ["GITHUB_REF_NAME"].split("/")[0])
 
     # Get files from the PR
-    files = gh.rest.pulls.list_files(
-        owner=owner,
-        repo=repo,
-        pull_number=pr_number
-    )
+    files = gh.rest.pulls.list_files(owner=owner, repo=repo, pull_number=pr_number)
 
     result = []
 
@@ -77,18 +73,22 @@ def main() -> None:
 
     app_list = json.loads(
         subprocess.run(
-            ["argocd", "app", "list", "--output=json"], stdout=subprocess.PIPE, check=True
+            ["argocd", "app", "list", "--output=json"],
+            stdout=subprocess.PIPE,
+            check=True,
         ).stdout.decode("utf-8")
     )
     apps = {
         app["metadata"]["name"]
         for app in app_list
-        if app["spec"]["source"]["repoURL"] == f"git@github.com:{os.environ['GITHUB_REPOSITORY']}.git"
+        if app["spec"]["source"]["repoURL"]
+        == f"git@github.com:{os.environ['GITHUB_REPOSITORY']}.git"
     }
 
     with open("data/argocd.yaml", encoding="utf-8") as no_sync_file:
         apps_re = [
-            re.compile(pattern) for pattern in yaml.load(no_sync_file, Loader=yaml.SafeLoader)["apps_re"]
+            re.compile(pattern)
+            for pattern in yaml.load(no_sync_file, Loader=yaml.SafeLoader)["apps_re"]
         ]
 
     for app in apps:
@@ -99,7 +99,7 @@ def main() -> None:
                     accept = True
                     break
             if not accept:
-                #print(f"The application {app} is skipped")
+                # print(f"The application {app} is skipped")
                 continue
 
         accept = False

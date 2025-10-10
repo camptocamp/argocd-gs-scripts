@@ -37,14 +37,18 @@ def main() -> None:
 
     app_list = json.loads(
         run_retry(
-            ["argocd", "app", "list", "--output=json"], stdout=subprocess.PIPE, check=True
+            ["argocd", "app", "list", "--output=json"],
+            stdout=subprocess.PIPE,
+            check=True,
         ).stdout.decode("utf-8")
     )
     apps = {app["metadata"]["name"] for app in app_list}
 
     with open("data/argocd.yaml", encoding="utf-8") as no_sync_file:
         no_sync_config = yaml.load(no_sync_file, Loader=yaml.SafeLoader)
-        no_sync_re = [re.compile(pattern) for pattern in no_sync_config["no_sync_apps_re"]]
+        no_sync_re = [
+            re.compile(pattern) for pattern in no_sync_config["no_sync_apps_re"]
+        ]
         apps_re = [re.compile(pattern) for pattern in no_sync_config["apps_re"]]
 
     ignored_apps = set()
