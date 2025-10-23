@@ -53,11 +53,13 @@ def _thread_project(args: list[str | Path]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test to apply the HELM charts.")
-    parser.parse_args()
+    parser.add_argument("--single", action="store_true", help="Single client repository.")
+    args = parser.parse_args()
 
+    folders = '*/' if args.single is None else '*/*/'
     for directory_name in [
-        *glob.glob("apps/int/*/*/", recursive=True),
-        *glob.glob("apps/prod/*/*/", recursive=True),
+        *glob.glob(f"apps/int/{folders}", recursive=True),
+        *glob.glob(f"apps/prod/{folders}", recursive=True),
     ]:
         directory_path = Path(directory_name)
         chart_path = directory_path / "Chart.yaml"
