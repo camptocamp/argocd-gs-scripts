@@ -56,7 +56,7 @@ def main() -> None:
     parser.add_argument("--single", action="store_true", help="Single client repository.")
     args = parser.parse_args()
 
-    folders = '*/' if args.single is None else '*/*/'
+    folders = '*/' if args.single else '*/*/'
     for directory_name in [
         *glob.glob(f"apps/int/{folders}", recursive=True),
         *glob.glob(f"apps/prod/{folders}", recursive=True),
