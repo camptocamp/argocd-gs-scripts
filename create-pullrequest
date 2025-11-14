@@ -5,10 +5,18 @@ if [[ $(git status --porcelain) == "" ]]; then
     exit 0
 fi
 
-BRANCH_NAME="update-images-hash-${RANDOM}"
+# 2 arguments required
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <branch-prefix> <commit-message>" >&2
+    exit 1
+fi
+RANCH_PREFIX=$1
+COMMIT_MESSAGE=$2
+
+BRANCH_NAME="${RANCH_PREFIX}-${RANDOM}"
 git checkout -b "${BRANCH_NAME}"
 git add --all
-git commit --message="Update the images hash ${1:0:99}"
-git push origin ${BRANCH_NAME}
+git commit --message="${COMMIT_MESSAGE}"
+git push origin "${BRANCH_NAME}"
 gopass show gs/ci/github/token/gopass | gh auth login --with-token
 gh pr create --fill --head "${BRANCH_NAME}"
