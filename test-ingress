@@ -1,59 +1,89 @@
 #!/usr/bin/env python3
 
 import argparse
-import sys
 import json
 import subprocess
+import sys
+
 import yaml
 from ansi.colour import fg, fx
 
 # TODO: test ports correspondences ingress -> service -> pod
 # TODO: test ingress certificates
 
+
 def title(text):
-    return f'{fg.blue}{fx.bold}{text}{fx.reset}{fx.reset}'
+    return f"{fg.blue}{fx.bold}{text}{fx.reset}{fx.reset}"
+
 
 def check(text, condition):
     color = fg.green if condition else fg.red
-    return f'{color}{fx.bold}{text}{fx.reset}{fx.reset}'
+    return f"{color}{fx.bold}{text}{fx.reset}{fx.reset}"
+
 
 def _main():
-    parser = argparse.ArgumentParser(description='Diagnosis Ingress')
-    parser.add_argument('host', help='Host to diagnose')
-    parser.add_argument('--path', default='/', help='Path to diagnose')
-    parser.add_argument('--namespace', help='Namespace search on', action='append')
-    parser.add_argument('--all-namespaces', action='store_true',
-                        help='Search on all namespaces')
+    parser = argparse.ArgumentParser(description="Diagnosis Ingress")
+    parser.add_argument("host", help="Host to diagnose")
+    parser.add_argument("--path", default="/", help="Path to diagnose")
+    parser.add_argument("--namespace", help="Namespace search on", action="append")
+    parser.add_argument(
+        "--all-namespaces", action="store_true", help="Search on all namespaces"
+    )
     arguments = parser.parse_args()
 
     if not arguments.namespace and not arguments.all_namespaces:
-        print("Error: No namespace specified, use --namespace to specify the namespace to search on or --all-namespaces to search on all namespaces")
+        print(
+            "Error: No namespace specified, use --namespace to specify the namespace to search on or --all-namespaces to search on all namespaces"
+        )
         sys.exit(1)
 
     namespaces = []
     if arguments.all_namespaces:
-        namespaces = subprocess.run(['kubectl', 'get', 'namespaces', '--output=jsonpath={.items[*].metadata.name}'],
-                                             stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout.split()
+        namespaces = subprocess.run(
+            [
+                "kubectl",
+                "get",
+                "namespaces",
+                "--output=jsonpath={.items[*].metadata.name}",
+            ],
+            stdout=subprocess.PIPE,
+            check=True,
+            encoding="utf-8",
+        ).stdout.split()
         if not namespaces:
             print("Error: No namespaces found, please create a namespace first")
             sys.exit(1)
     else:
         namespaces = arguments.namespace
 
-    print(f'Host: {arguments.host}')
-    print(f'Path: {arguments.path}')
+    print(f"Host: {arguments.host}")
+    print(f"Path: {arguments.path}")
     print(f'Namespace: {", ".join(namespaces)}')
 
-    #-o, --output='':
+    # -o, --output='':
     #    Output format. One of: (json, yaml, name, go-template, go-template-file, template, templatefile, jsonpath, jsonpath-as-json, jsonpath-file, #custom-columns, custom-columns-file, wide). See custom columns [https://kubernetes.io/docs/reference/kubectl/#custom-columns], golang template [http://golang.org/pkg/text/template/#pkg-overview] and jsonpath template [https://kubernetes.io/docs/reference/kubectl/jsonpath/].
 
     ingress_raw = {}
     for namespace in namespaces:
         try:
-            ingress_raw[namespace] = json.loads(subprocess.run(['kubectl', f'--namespace={namespace}', 'get', 'ingresses.networking.k8s.io',  '--output=json'],
-                                                            stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+            ingress_raw[namespace] = json.loads(
+                subprocess.run(
+                    [
+                        "kubectl",
+                        f"--namespace={namespace}",
+                        "get",
+                        "ingresses.networking.k8s.io",
+                        "--output=json",
+                    ],
+                    stdout=subprocess.PIPE,
+                    check=True,
+                    encoding="utf-8",
+                ).stdout
+            )
         except subprocess.CalledProcessError:
-            print(f"Error: Failed to get ingresses for namespace {namespace}: ignoring.")
+            print(
+                f"Error: Failed to get ingresses for namespace {namespace}: ignoring."
+            )
             continue
 
     print()
@@ -61,28 +91,32 @@ def _main():
     all_paths = []
     essential = {}
     for namespace, ingresses in ingress_raw.items():
-        for item in ingresses['items']:
-            for rule in item['spec']['rules']:
-                if arguments.host == rule['host']:
-                    print(f'{fg.green}{fx.bold}Found ingress rule for host {namespace}:{item["metadata"]["name"]} for host {rule["host"]}{fx.reset}{fx.reset}')
-                    for path in rule['http']['paths']:
-                            all_paths.append(path['path']   )
-                            essential[path['path']] ={
-                                'namespace': namespace,
-                                'name': item['metadata']['name'],
-                                'pathType': path['pathType'],
-                                'service': path['backend']['service']['name'],
-                                'port': path['backend']['service']['port']['number'],
-                                'status': item['status']
-                            }
+        for item in ingresses["items"]:
+            for rule in item["spec"]["rules"]:
+                if arguments.host == rule["host"]:
+                    print(
+                        f'{fg.green}{fx.bold}Found ingress rule for host {namespace}:{item["metadata"]["name"]} for host {rule["host"]}{fx.reset}{fx.reset}'
+                    )
+                    for path in rule["http"]["paths"]:
+                        all_paths.append(path["path"])
+                        essential[path["path"]] = {
+                            "namespace": namespace,
+                            "name": item["metadata"]["name"],
+                            "pathType": path["pathType"],
+                            "service": path["backend"]["service"]["name"],
+                            "port": path["backend"]["service"]["port"]["number"],
+                            "status": item["status"],
+                        }
 
     choose_path = None
     for path in all_paths:
-        if arguments.path.startswith(path) and len(path) > len(choose_path or ''):
+        if arguments.path.startswith(path) and len(path) > len(choose_path or ""):
             choose_path = path
 
     if choose_path is None:
-        print(f"Path {arguments.path} not found, available paths are: {', '.join(all_paths)}")
+        print(
+            f"Path {arguments.path} not found, available paths are: {', '.join(all_paths)}"
+        )
         return
     ingress = essential[choose_path]
 
@@ -92,41 +126,73 @@ def _main():
         print()
         print(title(f"{item['namespace']}:{item['name']}:"))
         if path == choose_path:
-            print(f'{fg.green}{fx.bold}  Path: {path} <={fx.reset}{fx.reset}')
+            print(f"{fg.green}{fx.bold}  Path: {path} <={fx.reset}{fx.reset}")
         else:
             print(f"  Path: {path}")
         print(f"  PathType: {item['pathType']}")
         print(f"  Service: {item['service']}:{item['port']}")
-        if item['status']:
+        if item["status"]:
             print("  Status:")
-            for line in yaml.dump(item['status'], default_flow_style=False).strip().split('\n'):
+            for line in (
+                yaml.dump(item["status"], default_flow_style=False).strip().split("\n")
+            ):
                 print(f"    {line}")
 
-    certificate = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'certificates', ingress['name'] ,'--output=json'],
-                                        stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+    certificate = json.loads(
+        subprocess.run(
+            [
+                "kubectl",
+                f'--namespace={ingress["namespace"]}',
+                "get",
+                "certificates",
+                ingress["name"],
+                "--output=json",
+            ],
+            stdout=subprocess.PIPE,
+            check=True,
+            encoding="utf-8",
+        ).stdout
+    )
     certificate_ready = True
-    for condition in certificate['status']['conditions']:
-        if condition.get('status') != 'True':
-            print(check(f"Certificate: {certificate['metadata']['name']} is not ready, {condition['message']}", False))
+    for condition in certificate["status"]["conditions"]:
+        if condition.get("status") != "True":
+            print(
+                check(
+                    f"Certificate: {certificate['metadata']['name']} is not ready, {condition['message']}",
+                    False,
+                )
+            )
             certificate_ready = False
     if certificate_ready:
-            print(check(f"Certificate: {certificate['metadata']['name']} is ready", True))
+        print(check(f"Certificate: {certificate['metadata']['name']} is ready", True))
     else:
         exit(1)
 
-    service = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'services', ingress["service"], '--output=json'],
-                                        stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+    service = json.loads(
+        subprocess.run(
+            [
+                "kubectl",
+                f'--namespace={ingress["namespace"]}',
+                "get",
+                "services",
+                ingress["service"],
+                "--output=json",
+            ],
+            stdout=subprocess.PIPE,
+            check=True,
+            encoding="utf-8",
+        ).stdout
+    )
 
-
-    service_name = service['metadata']['name']
+    service_name = service["metadata"]["name"]
     print()
     print(title(f"Service {service_name}:"))
     print(f"  Type: {service['spec']['type']}")
     print(f"  ClusterIP: {service['spec']['clusterIP']}")
     print(f"  ClusterIPs: {', '.join(service['spec']['clusterIPs'])}")
     port_found = False
-    for port in service['spec']['ports']:
-        if port['port'] == ingress['port']:
+    for port in service["spec"]["ports"]:
+        if port["port"] == ingress["port"]:
             print("  Port:")
             print(f"    Name: {port['name']}")
             print(f"    Protocol: {port['protocol']}")
@@ -134,38 +200,75 @@ def _main():
             port_found = True
     if not port_found:
         print(f"  Port: {ingress['port']} not found!!")
-    if service['status']:
+    if service["status"]:
         print("  Status:")
-        for line in yaml.dump(service['status'], default_flow_style=False).strip().split('\n'):
+        for line in (
+            yaml.dump(service["status"], default_flow_style=False).strip().split("\n")
+        ):
             print(f"    {line}")
-    print('  Selector:')
-    for key, value in service['spec']['selector'].items():
+    print("  Selector:")
+    for key, value in service["spec"]["selector"].items():
         print(f"    {key}: {value}")
 
-    endpoints = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'endpoints', service_name, '--output=json'],
-                                             stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+    endpoints = json.loads(
+        subprocess.run(
+            [
+                "kubectl",
+                f'--namespace={ingress["namespace"]}',
+                "get",
+                "endpoints",
+                service_name,
+                "--output=json",
+            ],
+            stdout=subprocess.PIPE,
+            check=True,
+            encoding="utf-8",
+        ).stdout
+    )
     print()
     print(title(f"Endpoints (deprecated) for {service_name}:"))
-    if 'subsets' not in endpoints:
-        print(check("  No endpoints found for this service, this probably means that there are no ready pods.", False))
+    if "subsets" not in endpoints:
+        print(
+            check(
+                "  No endpoints found for this service, this probably means that there are no ready pods.",
+                False,
+            )
+        )
     else:
-        for endpoint in endpoints['subsets']:
-            for address in endpoints.get('addresses', []):
+        for endpoint in endpoints["subsets"]:
+            for address in endpoints.get("addresses", []):
                 print(f"  IP: {address['ip']}")
-                print(f"  {address['targetRef']['kind']}: {address['targetRef']['namespace']}:{address['targetRef']['name']}")
-            for port in endpoint['ports']:
+                print(
+                    f"  {address['targetRef']['kind']}: {address['targetRef']['namespace']}:{address['targetRef']['name']}"
+                )
+            for port in endpoint["ports"]:
                 print(f"  Port {port['port']}:")
                 print(f"    Name: {port.get('name')}")
 
-    all_endpointslice = json.loads(subprocess.run(['kubectl', f'--namespace={ingress["namespace"]}', 'get', 'endpointslices', '--output=json'],
-                                             stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
+    all_endpointslice = json.loads(
+        subprocess.run(
+            [
+                "kubectl",
+                f'--namespace={ingress["namespace"]}',
+                "get",
+                "endpointslices",
+                "--output=json",
+            ],
+            stdout=subprocess.PIPE,
+            check=True,
+            encoding="utf-8",
+        ).stdout
+    )
     pods = {}
     print()
     print(title(f"Endpointslice for {service_name}:"))
-    for endpointslice in all_endpointslice['items']:
+    for endpointslice in all_endpointslice["items"]:
         found = False
-        for ownerReference in endpointslice['metadata']['ownerReferences']:
-            if ownerReference['kind'] == 'Service' and ownerReference['name'] == service_name:
+        for ownerReference in endpointslice["metadata"]["ownerReferences"]:
+            if (
+                ownerReference["kind"] == "Service"
+                and ownerReference["name"] == service_name
+            ):
                 found = True
                 break
         if not found:
@@ -173,50 +276,111 @@ def _main():
 
         print(f"  Name: {endpointslice['metadata']['name']}")
         print("  Endpoints:")
-        if 'endpoints' not in endpointslice or endpointslice['endpoints'] is None:
-            print(check("    No endpoints found for this service Endpointslice, this probably means that there are no ready pods.", False))
+        if "endpoints" not in endpointslice or endpointslice["endpoints"] is None:
+            print(
+                check(
+                    "    No endpoints found for this service Endpointslice, this probably means that there are no ready pods.",
+                    False,
+                )
+            )
             continue
         else:
-            for endpoint in endpointslice['endpoints']:
+            for endpoint in endpointslice["endpoints"]:
                 print(f"    IP: {', '.join(endpoint['addresses'])}")
-                print(f"    {endpoint['targetRef']['kind']}: {endpoint['targetRef']['namespace']}:{endpoint['targetRef']['name']}")
-                pods[f"{endpoint['targetRef']['namespace']}:{endpoint['targetRef']['name']}"] = {
-                    'namespace': endpoint['targetRef']['namespace'],
-                    'name': endpoint['targetRef']['name'],
+                print(
+                    f"    {endpoint['targetRef']['kind']}: {endpoint['targetRef']['namespace']}:{endpoint['targetRef']['name']}"
+                )
+                pods[
+                    f"{endpoint['targetRef']['namespace']}:{endpoint['targetRef']['name']}"
+                ] = {
+                    "namespace": endpoint["targetRef"]["namespace"],
+                    "name": endpoint["targetRef"]["name"],
                 }
                 print("    Conditions:")
-                print(check(f"      Ready: {endpoint['conditions']['ready']}", endpoint['conditions']['ready']))
-                print(check(f"      Serving: {endpoint['conditions']['serving']}", endpoint['conditions']['serving']))
+                print(
+                    check(
+                        f"      Ready: {endpoint['conditions']['ready']}",
+                        endpoint["conditions"]["ready"],
+                    )
+                )
+                print(
+                    check(
+                        f"      Serving: {endpoint['conditions']['serving']}",
+                        endpoint["conditions"]["serving"],
+                    )
+                )
                 print(f"      Terminating: {endpoint['conditions']['terminating']}")
 
             print("  Ports:")
-            if endpointslice.get('ports') is None:
-                print(check("    No ports found for this service Endpointslice, this probably means that there are no ready pods.", False))
+            if endpointslice.get("ports") is None:
+                print(
+                    check(
+                        "    No ports found for this service Endpointslice, this probably means that there are no ready pods.",
+                        False,
+                    )
+                )
                 continue
-            for port in endpointslice['ports']:
+            for port in endpointslice["ports"]:
                 print(f"    Name: {port['name']}")
                 print(f"    Protocol: {port['protocol']}")
                 print(f"    Port: {port['port']}")
 
     print()
-    pods_raw = {'items': []}
+    pods_raw = {"items": []}
     for pod in pods.values():
-        pod_raw = json.loads(subprocess.run(['kubectl', f'--namespace={pod["namespace"]}', 'get', 'pods', pod["name"], '--output=json'],
-                                            stdout=subprocess.PIPE, check=True, encoding='utf-8').stdout)
-        pods_raw['items'].append(pod_raw)
+        pod_raw = json.loads(
+            subprocess.run(
+                [
+                    "kubectl",
+                    f'--namespace={pod["namespace"]}',
+                    "get",
+                    "pods",
+                    pod["name"],
+                    "--output=json",
+                ],
+                stdout=subprocess.PIPE,
+                check=True,
+                encoding="utf-8",
+            ).stdout
+        )
+        pods_raw["items"].append(pod_raw)
 
-    if not pods_raw['items']:
-        print(check("No pods found for this service, this probably means that there are no ready pods.", False))
-    for pod_raw in pods_raw['items']:
+    if not pods_raw["items"]:
+        print(
+            check(
+                "No pods found for this service, this probably means that there are no ready pods.",
+                False,
+            )
+        )
+    for pod_raw in pods_raw["items"]:
         print(title(f"Pod {pod['namespace']}:{pod['name']}:"))
-        print(check(f"  Status: {pod_raw['status']['phase']}", pod_raw['status']['phase'] == 'Running'))
-        for condition in pod_raw['status']['conditions']:
-            check(f"{condition['type']}: {condition['status']}", condition['status'] == 'True')
+        print(
+            check(
+                f"  Status: {pod_raw['status']['phase']}",
+                pod_raw["status"]["phase"] == "Running",
+            )
+        )
+        for condition in pod_raw["status"]["conditions"]:
+            check(
+                f"{condition['type']}: {condition['status']}",
+                condition["status"] == "True",
+            )
         print("  Containers status:")
-        for container_status in  pod_raw['status']['containerStatuses']:
+        for container_status in pod_raw["status"]["containerStatuses"]:
             print(title(f"    {container_status['name']}:"))
-            print(check(f"      Ready: {container_status['ready']}", container_status['ready']))
-            print(check(f"      Started: {container_status['started']}", container_status['started']))
+            print(
+                check(
+                    f"      Ready: {container_status['ready']}",
+                    container_status["ready"],
+                )
+            )
+            print(
+                check(
+                    f"      Started: {container_status['started']}",
+                    container_status["started"],
+                )
+            )
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     _main()
