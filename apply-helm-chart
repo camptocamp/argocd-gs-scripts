@@ -23,13 +23,14 @@ class GitHubLogGroup:
             print(f"With {exc_value} error.")
 
 
-def _thread_project(args: list[str | Path]) -> None:
+def _thread_project(args: list[str | Path], output_file: Path) -> None:
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     try:
         subprocess.run(
             [
                 "scripts/template-gen",
                 "--debug",
-                "--output=output.yaml",
+                f"--output={output_file}",
                 *args,
             ],
             check=True,
@@ -46,17 +47,19 @@ def _thread_project(args: list[str | Path]) -> None:
         subprocess.run(["kubectl", "delete", "--filename=output.yaml"])
     except subprocess.CalledProcessError:
         print("Error during apply.")
-        with open("output.yaml", encoding="utf-8") as f:
+        with output_file.open(encoding="utf-8") as f:
             print(f.read())
         sys.exit(1)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test to apply the HELM charts.")
-    parser.add_argument("--single", action="store_true", help="Single client repository.")
+    parser.add_argument(
+        "--single", action="store_true", help="Single client repository."
+    )
     args = parser.parse_args()
 
-    folders = '*/' if args.single else '*/*/'
+    folders = "*/" if args.single else "*/*/"
     for directory_name in [
         *glob.glob(f"apps/int/{folders}", recursive=True),
         *glob.glob(f"apps/prod/{folders}", recursive=True),
@@ -68,7 +71,9 @@ def main() -> None:
             with GitHubLogGroup(
                 f"Process project {directory_path} as HELM chart project."
             ):
-                _thread_project([chart_path])
+                _thread_project(
+                    [chart_path], Path("data/gen") / directory_path / "output.yaml"
+                )
         else:
             print(f"Directory {directory_path} is not a project.")
 
