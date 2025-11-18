@@ -124,6 +124,8 @@ def main() -> None:
     for filename in glob.glob("**/*.yaml", recursive=True):
         if "/templates/" in filename:
             continue
+        if filename.startswith("data/"):
+            continue
         basename = os.path.basename(filename)
         if basename == "secrets.yaml" or basename.startswith("secrets-"):
             continue
@@ -200,7 +202,7 @@ def main() -> None:
     for filename in glob.glob("**/*.yaml", recursive=True):
         if "/templates/" in filename:
             continue
-        if "/data/" in filename:
+        if filename.startswith("data/"):
             continue
         basename = os.path.basename(filename)
         if basename == "secrets.yaml" or basename.startswith("secrets-"):
