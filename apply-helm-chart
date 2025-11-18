@@ -41,10 +41,10 @@ def _thread_project(args: list[str | Path], output_file: Path) -> None:
 
     try:
         subprocess.run(
-            ["kubectl", "apply", "--filename=output.yaml"],
+            ["kubectl", "apply", f"--filename={output_file}"],
             check=True,
         )
-        subprocess.run(["kubectl", "delete", "--filename=output.yaml"])
+        subprocess.run(["kubectl", "delete", f"--filename={output_file}"])
     except subprocess.CalledProcessError:
         print("Error during apply.")
         with output_file.open(encoding="utf-8") as f:
