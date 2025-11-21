@@ -12,7 +12,9 @@ import yaml
 _DRY_RUN = False
 
 
-def _run(cmd: Union[str, list[str]], **kwargs: Any) -> Optional[subprocess.CompletedProcess[str]]:
+def _run(
+    cmd: Union[str, list[str]], **kwargs: Any
+) -> Optional[subprocess.CompletedProcess[str]]:
     """Verbose version of check_output with no returns."""
     if isinstance(cmd, list):
         cmd = [str(element) for element in cmd]
@@ -30,11 +32,14 @@ def _use_cluster(name: str, only_use_context: bool) -> None:
     if not only_use_context:
         print("Use `az login` to be logged in to Azure")
         _run(["kubelogin", "convert-kubeconfig"])
-        subscriptions = json.loads(_run(["az", "account", "list"], check=True, stdout=subprocess.PIPE).stdout)
+        subscriptions = json.loads(
+            _run(["az", "account", "list"], check=True, stdout=subprocess.PIPE).stdout
+        )
         subscriptions = [
             s["id"]
             for s in subscriptions
-            if s["name"] == "[Geospatial Solutions] GS Platform Switzerland (Production)"
+            if s["name"]
+            == "[Geospatial Solutions] GS Platform Switzerland (Production)"
         ]
         if len(subscriptions) != 1:
             raise Exception("No subscriptions found for cluster prod")
@@ -67,9 +72,15 @@ scripts/login --blue --get-credentials
     )
     parser.add_argument("--blue", action="store_true", help="Connect to blue cluster")
     parser.add_argument("--green", action="store_true", help="Connect to green cluster")
-    parser.add_argument("--dry-run", help="Do not execute the command", action="store_true")
-    parser.add_argument("--only-use-context", action="store_true", help="Only use the existing context")
-    parser.add_argument("--context", action="store_true", help="The used context details")
+    parser.add_argument(
+        "--dry-run", help="Do not execute the command", action="store_true"
+    )
+    parser.add_argument(
+        "--only-use-context", action="store_true", help="Only use the existing context"
+    )
+    parser.add_argument(
+        "--context", action="store_true", help="The used context details"
+    )
     args = parser.parse_args()
 
     global _DRY_RUN
@@ -81,20 +92,32 @@ scripts/login --blue --get-credentials
         _run(["kubelogin", "--version"])
         print()
         print(
-            yaml.dump(json.loads(_run(["az", "account", "show"], check=True, stdout=subprocess.PIPE).stdout))
+            yaml.dump(
+                json.loads(
+                    _run(
+                        ["az", "account", "show"], check=True, stdout=subprocess.PIPE
+                    ).stdout
+                )
+            )
         )
         context_name = _run(
             ["kubectl", "config", "current-context"], check=True, stdout=subprocess.PIPE
         ).stdout.strip()
         config = yaml.load(
-            _run(["kubectl", "config", "view"], check=True, stdout=subprocess.PIPE).stdout,
+            _run(
+                ["kubectl", "config", "view"], check=True, stdout=subprocess.PIPE
+            ).stdout,
             Loader=yaml.SafeLoader,
         )
         print()
-        context = [c for c in config["contexts"] if c["name"] == context_name][0]["context"]
+        context = [c for c in config["contexts"] if c["name"] == context_name][0][
+            "context"
+        ]
         print("Context:")
         print(yaml.dump(context))
-        cluster = [c for c in config["clusters"] if c["name"] == context["cluster"]][0]["cluster"]
+        cluster = [c for c in config["clusters"] if c["name"] == context["cluster"]][0][
+            "cluster"
+        ]
         print("Cluster:")
         print(yaml.dump(cluster))
         user = [c for c in config["users"] if c["name"] == context["user"]][0]["user"]
