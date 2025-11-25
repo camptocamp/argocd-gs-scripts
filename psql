@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
 import hashlib
 import json
+import os
 import shlex
 import signal
 import subprocess
@@ -12,18 +12,24 @@ import sys
 
 def _get_secret(keyvault: str, keyvault_key: str) -> str:
     try:
-        json_str=  subprocess.run([
-                                "az",
-                        "keyvault",
-                        "secret",
-                        "show",
-                        f"--vault-name={keyvault}",
-                        f"--name={keyvault_key}",
-        ], stdout=subprocess.PIPE, encoding="utf-8", check=True).stdout
+        json_str = subprocess.run(
+            [
+                "az",
+                "keyvault",
+                "secret",
+                "show",
+                f"--vault-name={keyvault}",
+                f"--name={keyvault_key}",
+            ],
+            stdout=subprocess.PIPE,
+            encoding="utf-8",
+            check=True,
+        ).stdout
     except subprocess.CalledProcessError as e:
         print(f"Error: {e}")
         sys.exit(1)
     return json.loads(json_str)["value"]
+
 
 # Also used by pg-restore
 def get_secrets(keyvault: str, database: str) -> dict[str, str]:
@@ -48,25 +54,39 @@ def get_env(decoded_secrets: dict[str, str]) -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run psql with the credentials from Azure Keyvault.",
-                                     usage= "scripts/psql gmf-demoprod-kv gmf")
-    parser.add_argument("--odyssey", action="store_true", help="Get the configuration for Odyssey")
-    parser.add_argument("--display", action="store_true", help="Display the credentials")
+    parser = argparse.ArgumentParser(
+        description="Run psql with the credentials from Azure Keyvault.",
+        usage="scripts/psql gmf-demoprod-kv gmf",
+    )
     parser.add_argument(
-        "--dry-run", action="store_true", help="Display the command to run without executing it"
+        "--odyssey", action="store_true", help="Get the configuration for Odyssey"
+    )
+    parser.add_argument(
+        "--display", action="store_true", help="Display the credentials"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Display the command to run without executing it",
     )
     parser.add_argument("keyvault", nargs=1, help="The keyvault name")
-    parser.add_argument("database", nargs='?', help="The database nick name")
+    parser.add_argument("database", nargs="?", help="The database nick name")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
     keyvault = args.keyvault[0]
     if args.database is None:
-        proc = subprocess.run(["az", "keyvault", "secret", "list", f"--vault-name={keyvault}"], check=True, stdout=subprocess.PIPE)
+        proc = subprocess.run(
+            ["az", "keyvault", "secret", "list", f"--vault-name={keyvault}"],
+            check=True,
+            stdout=subprocess.PIPE,
+        )
         print("Available databases:")
         for secret in json.loads(proc.stdout):
-            if secret["name"].startswith("pg-") and secret["name"].endswith("-database"):
-                print(secret["name"][len("pg-"):-len("-database")])
+            if secret["name"].startswith("pg-") and secret["name"].endswith(
+                "-database"
+            ):
+                print(secret["name"][len("pg-") : -len("-database")])
         sys.exit(0)
     database = args.database
 
@@ -97,14 +117,24 @@ With SOPS:
             print(f"{key}={value}")
         sys.exit(0)
     if args.dry_run:
-        print(" ".join(["=".join(e) for e in env.items()]) + " " + shlex.join(args.command or ["psql"]))
+        print(
+            " ".join(["=".join(e) for e in env.items()])
+            + " "
+            + shlex.join(args.command or ["psql"])
+        )
         sys.exit(0)
 
     print(f'Used database: {decoded_secrets["database"]}')
 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
-        proc = subprocess.run(args.command or ["psql"], env=env, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr)  # pylint: disable=subprocess-run-check
+        proc = subprocess.run(
+            args.command or ["psql"],
+            env=env,
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )  # pylint: disable=subprocess-run-check
     except FileNotFoundError as e:
         print(f"Error: {e}")
         sys.exit(1)

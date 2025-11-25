@@ -7,7 +7,9 @@ import subprocess
 import sys
 from importlib.machinery import SourceFileLoader
 
-psql = SourceFileLoader("psql", str(pathlib.Path(__file__).absolute().with_name("psql"))).load_module()
+psql = SourceFileLoader(
+    "psql", str(pathlib.Path(__file__).absolute().with_name("psql"))
+).load_module()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -20,8 +22,12 @@ scripts/pg_restore gmf-demo-int database-gmf-demo ../demo.backup -Fc --no-owner 
     parser.add_argument("keyvault", nargs=1, help="The keyvault name")
     parser.add_argument("database", nargs=1, help="The database nick name")
     parser.add_argument("backup_file", nargs="?", help="The backup file")
-    parser.add_argument("--dry-run", action="store_true", help="Display the credentials")
-    parser.add_argument("arguments", nargs=argparse.REMAINDER, help="The pg_restore arguments")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Display the credentials"
+    )
+    parser.add_argument(
+        "arguments", nargs=argparse.REMAINDER, help="The pg_restore arguments"
+    )
     args = parser.parse_args()
 
     decoded_secrets = psql.get_secrets(args.keyvault[0], args.database[0])
@@ -46,6 +52,8 @@ scripts/pg_restore gmf-demo-int database-gmf-demo ../demo.backup -Fc --no-owner 
 
         print(f'Used database: {decoded_secrets["database"]}')
 
-        proc = subprocess.run(cmd, env=env, stdin=backup_file)  # pylint: disable=subprocess-run-check
+        proc = subprocess.run(
+            cmd, env=env, stdin=backup_file
+        )  # pylint: disable=subprocess-run-check
 
         sys.exit(proc.returncode)

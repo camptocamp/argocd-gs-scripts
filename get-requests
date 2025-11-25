@@ -13,7 +13,8 @@ import yaml
 
 def call(params, cookie, query="query"):
     response = requests.get(
-        "https://gs-metrics-prometheus.apps.openshift-ch-1.camptocamp.com/api/v1/" + query,
+        "https://gs-metrics-prometheus.apps.openshift-ch-1.camptocamp.com/api/v1/"
+        + query,
         params=params,
         headers={"Cookie": cookie},
         timeout=30,
@@ -101,7 +102,9 @@ def get(arguments):
 
 def format_number(value):
     return (
-        "{:.3f}" if value < 1.7 else "{:.2f}" if value < 17 else f"{value:.1f}" if value < 170 else "{:.0f}"
+        "{:.3f}"
+        if value < 1.7
+        else "{:.2f}" if value < 17 else f"{value:.1f}" if value < 170 else "{:.0f}"
     ).format(value)
 
 
@@ -180,12 +183,20 @@ def process(arguments):
 
             value = quotas_by_config.setdefault(new_key, quotas_by_config_default())
 
-            values = [(datetime.datetime.fromtimestamp(r[0]), r[1]) for r in result["values"]]
+            values = [
+                (datetime.datetime.fromtimestamp(r[0]), r[1]) for r in result["values"]
+            ]
             if not arguments.weekend:
                 values = [r for r in values if r[0].weekday() < 6]
-            values = [r for r in values if arguments.start_hour <= r[0].hour < arguments.end_hour]
+            values = [
+                r
+                for r in values
+                if arguments.start_hour <= r[0].hour < arguments.end_hour
+            ]
             values = [float(r[1]) for r in values]
-            value["containers"].setdefault(key, container_default())[container_key].extend(values)
+            value["containers"].setdefault(key, container_default())[
+                container_key
+            ].extend(values)
             value[values_key].extend(values)
 
     for key in no_quota:
@@ -196,7 +207,9 @@ def process(arguments):
         if len(value["values_memory"]) > 0:
             if value["values_memory"]:
                 current_memory = max(
-                    np.percentile(np.array(value["values_memory"]), arguments.percentile),
+                    np.percentile(
+                        np.array(value["values_memory"]), arguments.percentile
+                    ),
                     min_memory,
                 )
             else:
@@ -207,7 +220,8 @@ def process(arguments):
                 current_memory = 0
             if value["values_cpu"]:
                 current_cpu = max(
-                    np.percentile(np.array(value["values_cpu"]), arguments.percentile) * value_factor_cpu,
+                    np.percentile(np.array(value["values_cpu"]), arguments.percentile)
+                    * value_factor_cpu,
                     min_cpu,
                 )
             else:
@@ -235,13 +249,17 @@ def process(arguments):
                         "    {} / {} / {} ({} - {})".format(
                             *container,
                             format(
-                                np.percentile(np.array(values["memory"]), arguments.percentile)
+                                np.percentile(
+                                    np.array(values["memory"]), arguments.percentile
+                                )
                                 if len(values["memory"]) > 0
                                 else -1
                             ),
                             format(
                                 (
-                                    np.percentile(np.array(values["cpu"]), arguments.percentile)
+                                    np.percentile(
+                                        np.array(values["cpu"]), arguments.percentile
+                                    )
                                     * value_factor_cpu
                                     if len(values["cpu"]) > 0
                                     else -1

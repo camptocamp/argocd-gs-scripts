@@ -14,18 +14,33 @@ if __name__ == "__main__":
         required=True,
         help="The anonymized name use in mutualize print, usually the integration database name",
     )
-    argparser.add_argument("--int-hostname", help="The integration hostname, default ...")
-    argparser.add_argument("--prod-hostname", help="The production hostname, default ...")
     argparser.add_argument(
-        "--version", required=True, help="The GeoMapFish version (with dot) to use, e.g. 2.8"
-    )
-    argparser.add_argument("--main-schema", help="The main schema, default to main_<version>' with dash")
-    argparser.add_argument("--static-schema", help="The main schema, default to 'static_<version>' with dash")
-    argparser.add_argument(
-        "--repo-name", required=True, help="The name of the GitHub repository name, without owner"
+        "--int-hostname", help="The integration hostname, default ..."
     )
     argparser.add_argument(
-        "--package-name", required=True, help="The package name (used in scaffold) of the print-apps "
+        "--prod-hostname", help="The production hostname, default ..."
+    )
+    argparser.add_argument(
+        "--version",
+        required=True,
+        help="The GeoMapFish version (with dot) to use, e.g. 2.8",
+    )
+    argparser.add_argument(
+        "--main-schema", help="The main schema, default to main_<version>' with dash"
+    )
+    argparser.add_argument(
+        "--static-schema",
+        help="The main schema, default to 'static_<version>' with dash",
+    )
+    argparser.add_argument(
+        "--repo-name",
+        required=True,
+        help="The name of the GitHub repository name, without owner",
+    )
+    argparser.add_argument(
+        "--package-name",
+        required=True,
+        help="The package name (used in scaffold) of the print-apps ",
     )
 
     args = argparser.parse_args()
@@ -38,19 +53,26 @@ if __name__ == "__main__":
     for section in ["values", "int", "prod"]:
         os.makedirs(f"""apps/{section}/{args.name}""", exist_ok=True)
         for filename in os.listdir(f"""apps/example/{section}"""):
-            if "gmf-" not in filename or f"gmf-{args.version.replace('.', '-')}" in filename:
+            if (
+                "gmf-" not in filename
+                or f"gmf-{args.version.replace('.', '-')}" in filename
+            ):
                 if os.path.isdir(f"apps/example/{section}/{filename}"):
                     if os.path.exists(f"apps/{section}/{args.name}/{filename}"):
                         shutil.rmtree(f"apps/{section}/{args.name}/{filename}")
                     shutil.copytree(
-                        f"apps/example/{section}/{filename}", f"""apps/{section}/{args.name}/{filename}"""
+                        f"apps/example/{section}/{filename}",
+                        f"""apps/{section}/{args.name}/{filename}""",
                     )
                 else:
                     shutil.copy(
-                        f"apps/example/{section}/{filename}", f"""apps/{section}/{args.name}/{filename}"""
+                        f"apps/example/{section}/{filename}",
+                        f"""apps/{section}/{args.name}/{filename}""",
                     )
 
-        for filename in glob.glob(f"apps/{section}/{args.name}/**/*.yaml", recursive=True):
+        for filename in glob.glob(
+            f"apps/{section}/{args.name}/**/*.yaml", recursive=True
+        ):
             hostname = args.prod_hostname if section == "prod" else args.int_hostname
             if not hostname:
                 hostname = f"map.{section}.{args.name}.com"
@@ -64,7 +86,9 @@ if __name__ == "__main__":
                 ("package_name", args.package_name),
                 ("geomapfish_version", args.version.replace(".", "-")),
             ]:
-                subprocess.run(["sed", "-i", f"s/<{field}>/{value}/g", filename], check=True)
+                subprocess.run(
+                    ["sed", "-i", f"s/<{field}>/{value}/g", filename], check=True
+                )
 
     print("# Values to be filed (should be empty):")
     for section in ["values", "int", "prod"]:
