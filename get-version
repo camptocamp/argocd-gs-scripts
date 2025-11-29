@@ -8,7 +8,9 @@ import yaml
 
 def _main() -> None:
     parser = argparse.ArgumentParser("Get the version")
-    parser.add_argument("--config", default="versions.yaml", help="The versions file to use")
+    parser.add_argument(
+        "--config", default="versions.yaml", help="The versions file to use"
+    )
     parser.add_argument("version_name", help="The version name")
     args = parser.parse_args()
 
