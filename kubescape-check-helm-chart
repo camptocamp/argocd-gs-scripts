@@ -26,7 +26,9 @@ class GitHubLogGroup:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the Kubescape scan on all the HELM charts.")
+    parser = argparse.ArgumentParser(
+        description="Run the Kubescape scan on all the HELM charts."
+    )
     parser.parse_args()
 
     for filename in [
@@ -46,7 +48,9 @@ def main() -> None:
                 del release
 
                 try:
-                    filename_match = re.match(r"apps/(int|prod)/(.+)/(.+)/helmfile.yaml", filename)
+                    filename_match = re.match(
+                        r"apps/(int|prod)/(.+)/(.+)/helmfile.yaml", filename
+                    )
                     subprocess.run(
                         [
                             "scripts/template-gen",
