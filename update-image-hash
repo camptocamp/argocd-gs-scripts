@@ -13,10 +13,10 @@ from ruamel.yaml import YAML, CommentToken
 
 
 def _get_image_name(image_config: dict[str, str]) -> str:
-    image = f'{image_config["registry"]}/' if "registry" in image_config else ""
+    image = f"{image_config['registry']}/" if "registry" in image_config else ""
     image += image_config["repository"]
     if "tag" in image_config:
-        image += f':{image_config["tag"]}'
+        image += f":{image_config['tag']}"
     return image
 
 
@@ -33,30 +33,20 @@ def _find_images(yaml: dict[str, Any], images: set[str], filename: str) -> None:
             _find_images(value, images, filename)
 
 
-def _update_images_sha(
-    yaml: dict[str, Any], images_data: dict[str, dict[str, datetime]]
-) -> None:
+def _update_images_sha(yaml: dict[str, Any], images_data: dict[str, dict[str, datetime]]) -> None:
     if not isinstance(yaml, dict):
         return
     for key, value in yaml.items():
         if key == "image":
-            if (
-                "repository" in value
-                and "tag" in value
-                and not value.get("lock", False)
-            ):
-                at_least_old = datetime.now(timezone.utc) - timedelta(
-                    days=value.get("atleastOldDays", 0)
-                )
+            if "repository" in value and "tag" in value and not value.get("lock", False):
+                at_least_old = datetime.now(timezone.utc) - timedelta(days=value.get("atleastOldDays", 0))
                 at_least_new = datetime(1970, 1, 1, tzinfo=timezone.utc)
                 if "atleastDate" in value:
                     at_least_new = value["atleastDate"].astimezone()
                 if at_least_new > at_least_old:
                     shas = [
                         (sha, date)
-                        for sha, date in images_data.setdefault(
-                            _get_image_name(value), {}
-                        ).items()
+                        for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
                         if date >= at_least_new
                     ]
                     shas.sort(key=lambda x: x[1])
@@ -66,9 +56,7 @@ def _update_images_sha(
                 else:
                     shas = [
                         (sha, date)
-                        for sha, date in images_data.setdefault(
-                            _get_image_name(value), {}
-                        ).items()
+                        for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
                         if date <= at_least_old
                     ]
                     shas.sort(key=lambda x: x[1])
@@ -108,12 +96,8 @@ class GitHubLogGroup:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Update the images hash.")
-    parser.add_argument(
-        "--no-pull", dest="pull", action="store_false", help="do not pull the images"
-    )
-    parser.add_argument(
-        "images", metavar="IMAGES", nargs="*", help="the images to be updated"
-    )
+    parser.add_argument("--no-pull", dest="pull", action="store_false", help="do not pull the images")
+    parser.add_argument("images", metavar="IMAGES", nargs="*", help="the images to be updated")
     args = parser.parse_args()
 
     images = set(args.images)
@@ -158,17 +142,11 @@ def main() -> None:
                         check=True,
                     )
 
-                    line = [
-                        line
-                        for line in process.stdout.split("\n")
-                        if line.startswith("Digest:")
-                    ][0]
+                    line = [line for line in process.stdout.split("\n") if line.startswith("Digest:")][0]
                     sha = line.split(":")[2]
                     print("Get sha:", sha)
                     if sha not in images_data.get(image, {}):
-                        images_data.setdefault(image, {})[sha] = datetime.now(
-                            timezone.utc
-                        )
+                        images_data.setdefault(image, {})[sha] = datetime.now(timezone.utc)
 
                     # Delete the Docker images if the disk available space is under 5Gio
                     process = subprocess.run(

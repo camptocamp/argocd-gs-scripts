@@ -3,7 +3,6 @@
 import argparse
 import glob
 from pathlib import Path
-import shlex
 import shutil
 import subprocess
 import sys
@@ -11,26 +10,38 @@ from typing import Any
 import yaml
 import ruamel.yaml
 
-def _convert_values_filename(values_filename: str, chart: str, source_dir: Path, dest_dir: Path, files_to_remove: set[str], dry_run: bool) -> str:
+
+def _convert_values_filename(
+    values_filename: str,
+    chart: str,
+    source_dir: Path,
+    dest_dir: Path,
+    files_to_remove: set[str],
+    dry_run: bool,
+) -> str:
     if values_filename.startswith(".."):
         return values_filename
 
-    if chart == '.':
+    if chart == ".":
         if values_filename in ("./values.yaml", "values.yaml", "./values-base.yaml", "values-base.yaml"):
             return "./values-base.yaml"
     else:
         if values_filename in (f"./{chart}/values.yaml", f"{chart}/values.yaml"):
             return "./values-base.yaml"
         if values_filename.startswith(f"./{chart}/") or values_filename.startswith(f"{chart}/"):
-            return f"./{values_filename[len(f'./{chart}/'):]}"
+            return f"./{values_filename[len(f'./{chart}/') :]}"
         if values_filename.startswith(f"./"):
             if source_dir != dest_dir:
-                new_value_filename = values_filename.replace(f'-{chart}' , '') if f'-{chart}' in values_filename else values_filename
-                if new_value_filename == './values.yaml':
-                    new_value_filename = './values-base.yaml'
+                new_value_filename = (
+                    values_filename.replace(f"-{chart}", "")
+                    if f"-{chart}" in values_filename
+                    else values_filename
+                )
+                if new_value_filename == "./values.yaml":
+                    new_value_filename = "./values-base.yaml"
                 source_value = source_dir / values_filename
                 dest_value = dest_dir / new_value_filename
-                print(f'cp {source_value} {dest_value}')
+                print(f"cp {source_value} {dest_value}")
                 files_to_remove.add(source_value)
                 if not dry_run:
                     shutil.copy(source_value, dest_value)
@@ -41,7 +52,15 @@ def _convert_values_filename(values_filename: str, chart: str, source_dir: Path,
     raise ValueError(f"Invalid values filename {values_filename}, chart {chart}")
 
 
-def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Path, files_to_remove: set[str], files_to_add: set[str], dry_run: bool, verbose: bool = False):
+def _move_application(
+    release: dict[str, Any],
+    helmfile: str,
+    helmfile_path: Path,
+    files_to_remove: set[str],
+    files_to_add: set[str],
+    dry_run: bool,
+    verbose: bool = False,
+):
     release_name = release["name"]
 
     application_path = helmfile_path.parent
@@ -51,92 +70,116 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
     if application_path != new_application_path:
         print(f"cp -ar {application_path / release['chart']} {new_application_path}")
         if not dry_run:
-            #new_application_path.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(application_path / release['chart'], new_application_path)
+            # new_application_path.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(application_path / release["chart"], new_application_path)
             subprocess.run(["git", "add", new_application_path])
-        files_to_remove.add(application_path / release['chart'])
+        files_to_remove.add(application_path / release["chart"])
 
-    if len(helmfile['releases']) == 1 and release['chart'] == '.':
-            print(f"git mv {helmfile_path} {new_helmfile_path}")
+    if len(helmfile["releases"]) == 1 and release["chart"] == ".":
+        print(f"git mv {helmfile_path} {new_helmfile_path}")
+        if not dry_run:
+            subprocess.run(["git", "mv", helmfile_path, new_helmfile_path])
+            with open(new_helmfile_path) as new_helmfile_file:
+                new_helmfile = yaml.load(new_helmfile_file, Loader=yaml.SafeLoader)
+                new_release = new_helmfile["releases"][0]
+                new_release["values"] = [
+                    _convert_values_filename(
+                        v, ".", helmfile_path.parent, new_helmfile_path.parent, files_to_remove, dry_run
+                    )
+                    for v in new_release["values"]
+                ]
+        values_path = new_helmfile_path.parent / "values.yaml"
+        if values_path.exists():
+            print(f"git mv {values_path} {new_application_path / 'values-base.yaml'}")
             if not dry_run:
-                subprocess.run(["git", "mv", helmfile_path, new_helmfile_path])
-                with open(new_helmfile_path) as new_helmfile_file:
-                    new_helmfile = yaml.load(new_helmfile_file, Loader=yaml.SafeLoader)
-                    new_release = new_helmfile['releases'][0]
-                    new_release['values'] = [_convert_values_filename(v, '.', helmfile_path.parent, new_helmfile_path.parent, files_to_remove, dry_run) for v in  new_release['values']]
-            values_path = new_helmfile_path.parent / "values.yaml"
-            if values_path.exists():
-                print(f"git mv {values_path} {new_application_path / 'values-base.yaml'}")
-                if not dry_run:
-                    subprocess.run(["git", "mv", values_path, new_application_path / 'values-base.yaml'])
+                subprocess.run(["git", "mv", values_path, new_application_path / "values-base.yaml"])
 
-            if not dry_run:
-                with open(new_helmfile_path, "w") as new_helmfile_file:
-                    yaml.dump(new_helmfile, new_helmfile_file)
-
-            new_helmfile_bis = {
-                'repositories': helmfile.get('repositories', []),
-                'releases': [{**release, 'chart': '.', 'values': ['./values.yaml']}],
-            }
-            new_helmfile_bis_path = new_application_path / "helmfile.yaml"
-            if new_helmfile_bis_path in files_to_remove:
-                files_to_remove.remove(new_helmfile_bis_path)
-            print(f"Create helmfile {new_helmfile_bis_path}")
-            if verbose:
-                print('With:')
-                print(yaml.dump(new_helmfile_bis))
-            if not dry_run:
-                with open(new_helmfile_bis_path, "w") as new_helmfile_bis_file:
-                        yaml.dump(new_helmfile_bis, new_helmfile_bis_file)
-                subprocess.run(["git", "add", new_helmfile_bis_path])
-                files_to_add.add(new_helmfile_bis_path)
-
-    else:
-        new_release = {**release, 'chart': '.'}
-        if 'values' in new_release:
-            new_release['values'] = [_convert_values_filename(v, release['chart'], helmfile_path.parent, new_helmfile_path.parent, files_to_remove, dry_run) for v in  new_release['values']]
-            for values_filename in new_release['values']:
-                if values_filename == './values-base.yaml':
-                    print(f"git mv {new_application_path / 'values.yaml'} {new_application_path / 'values-base.yaml'}")
-                    if not dry_run:
-                        subprocess.run(["git", "mv", new_application_path / 'values.yaml', new_application_path / 'values-base.yaml'])
-                    continue
-
-        new_helmfile = {
-            'repositories': helmfile.get('repositories', []),
-            'releases': [new_release],
-        }
-        print(f"Create helmfile {new_helmfile_path}")
-        if verbose:
-            print('With:')
-            print(yaml.dump(new_helmfile))
         if not dry_run:
             with open(new_helmfile_path, "w") as new_helmfile_file:
-                    yaml.dump(new_helmfile, new_helmfile_file)
-            subprocess.run(["git", "add", new_helmfile_path])
-            files_to_add.add(new_helmfile_path)
+                yaml.dump(new_helmfile, new_helmfile_file)
 
         new_helmfile_bis = {
-            'repositories': helmfile.get('repositories', []),
-            'releases': [{**release, 'chart': '.', 'values': ['./values.yaml']}],
+            "repositories": helmfile.get("repositories", []),
+            "releases": [{**release, "chart": ".", "values": ["./values.yaml"]}],
         }
         new_helmfile_bis_path = new_application_path / "helmfile.yaml"
         if new_helmfile_bis_path in files_to_remove:
             files_to_remove.remove(new_helmfile_bis_path)
         print(f"Create helmfile {new_helmfile_bis_path}")
         if verbose:
-            print('With:')
+            print("With:")
             print(yaml.dump(new_helmfile_bis))
         if not dry_run:
             with open(new_helmfile_bis_path, "w") as new_helmfile_bis_file:
-                    yaml.dump(new_helmfile_bis, new_helmfile_bis_file)
+                yaml.dump(new_helmfile_bis, new_helmfile_bis_file)
+            subprocess.run(["git", "add", new_helmfile_bis_path])
+            files_to_add.add(new_helmfile_bis_path)
+
+    else:
+        new_release = {**release, "chart": "."}
+        if "values" in new_release:
+            new_release["values"] = [
+                _convert_values_filename(
+                    v,
+                    release["chart"],
+                    helmfile_path.parent,
+                    new_helmfile_path.parent,
+                    files_to_remove,
+                    dry_run,
+                )
+                for v in new_release["values"]
+            ]
+            for values_filename in new_release["values"]:
+                if values_filename == "./values-base.yaml":
+                    print(
+                        f"git mv {new_application_path / 'values.yaml'} {new_application_path / 'values-base.yaml'}"
+                    )
+                    if not dry_run:
+                        subprocess.run(
+                            [
+                                "git",
+                                "mv",
+                                new_application_path / "values.yaml",
+                                new_application_path / "values-base.yaml",
+                            ]
+                        )
+                    continue
+
+        new_helmfile = {
+            "repositories": helmfile.get("repositories", []),
+            "releases": [new_release],
+        }
+        print(f"Create helmfile {new_helmfile_path}")
+        if verbose:
+            print("With:")
+            print(yaml.dump(new_helmfile))
+        if not dry_run:
+            with open(new_helmfile_path, "w") as new_helmfile_file:
+                yaml.dump(new_helmfile, new_helmfile_file)
+            subprocess.run(["git", "add", new_helmfile_path])
+            files_to_add.add(new_helmfile_path)
+
+        new_helmfile_bis = {
+            "repositories": helmfile.get("repositories", []),
+            "releases": [{**release, "chart": ".", "values": ["./values.yaml"]}],
+        }
+        new_helmfile_bis_path = new_application_path / "helmfile.yaml"
+        if new_helmfile_bis_path in files_to_remove:
+            files_to_remove.remove(new_helmfile_bis_path)
+        print(f"Create helmfile {new_helmfile_bis_path}")
+        if verbose:
+            print("With:")
+            print(yaml.dump(new_helmfile_bis))
+        if not dry_run:
+            with open(new_helmfile_bis_path, "w") as new_helmfile_bis_file:
+                yaml.dump(new_helmfile_bis, new_helmfile_bis_file)
             subprocess.run(["git", "add", new_helmfile_bis_path])
             files_to_add.add(new_helmfile_bis_path)
 
     new_values_path = new_application_path / "values.yaml"
     print(f"Create value file {new_values_path}")
     if verbose:
-        print('With: {}')
+        print("With: {}")
     if new_values_path.exists() and not dry_run:
         print(f"Extra values file found {new_values_path}")
         sys.exit(1)
@@ -148,46 +191,59 @@ def _move_application(release: dict[str, Any], helmfile: str, helmfile_path: Pat
 
 
 def _main():
-    parser = argparse.ArgumentParser(description='Migration script to split a helmfile project into multiple project')
-    parser.add_argument('--status', action='store_true', help='List projects to migrate')
-    parser.add_argument('--verify', action='store_true', help='Verify destinations conflict')
-    parser.add_argument('--finalize-status', action='store_true', help='List projects to finalize')
-    parser.add_argument('--finalize', help='Finalization: remove the helmfile.yaml and the repository in the helmfile-base.yaml, base folder to finalize')
-    parser.add_argument('--commit-message', help='Commit message')
-    parser.add_argument('--dry-run', action='store_true', help='Do not write files')
-    parser.add_argument('--verbose', action='store_true', help='Verbose output')
-    parser.add_argument('helmfile', nargs="?", type=str, help='Helmfile to migrate')
+    parser = argparse.ArgumentParser(
+        description="Migration script to split a helmfile project into multiple project"
+    )
+    parser.add_argument("--status", action="store_true", help="List projects to migrate")
+    parser.add_argument("--verify", action="store_true", help="Verify destinations conflict")
+    parser.add_argument("--finalize-status", action="store_true", help="List projects to finalize")
+    parser.add_argument(
+        "--finalize",
+        help="Finalization: remove the helmfile.yaml and the repository in the helmfile-base.yaml, base folder to finalize",
+    )
+    parser.add_argument("--commit-message", help="Commit message")
+    parser.add_argument("--dry-run", action="store_true", help="Do not write files")
+    parser.add_argument("--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("helmfile", nargs="?", type=str, help="Helmfile to migrate")
     args = parser.parse_args()
 
     if args.status:
-        print('Projects to migrate:')
-        for helmfile_filename in [*glob.glob("apps/int/**/helmfile.yaml", recursive=True), *glob.glob("apps/prod/**/helmfile.yaml", recursive=True)]:
+        print("Projects to migrate:")
+        for helmfile_filename in [
+            *glob.glob("apps/int/**/helmfile.yaml", recursive=True),
+            *glob.glob("apps/prod/**/helmfile.yaml", recursive=True),
+        ]:
             with open(helmfile_filename) as helmfile_file:
                 helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
 
             if len(helmfile["releases"]) > 1:
-                print(f'Project {helmfile_filename} is not splitted')
+                print(f"Project {helmfile_filename} is not split")
                 continue
 
             for release in helmfile["releases"]:
                 if release["name"] != Path(helmfile_filename).parent.name:
-                    print(f'Project {helmfile_filename} is in the wrong folder, should be in {release["name"]}')
+                    print(
+                        f"Project {helmfile_filename} is in the wrong folder, should be in {release['name']}"
+                    )
                     continue
 
                 if len(release["values"]) > 1:
-                    print(f'Project {helmfile_filename} has multiple values file')
+                    print(f"Project {helmfile_filename} has multiple values file")
                     continue
 
                 if release["values"][0] != "./values.yaml":
-                    print(f'Project {helmfile_filename} has a custom values file')
+                    print(f"Project {helmfile_filename} has a custom values file")
                     continue
         sys.exit(0)
 
     if args.verify:
-        print('Verify destination conflict')
-        print('---------------------------')
+        print("Verify destination conflict")
+        print("---------------------------")
         destinations = set()
-        for projects_directory_name in [*glob.glob("apps/int/*/*/", recursive=True), *glob.glob("apps/prod/*/*/", recursive=True)]:
+        for projects_directory_name in [
+            *glob.glob("apps/int/*/*/", recursive=True),
+            *glob.glob("apps/prod/*/*/", recursive=True),
+        ]:
             project_path = Path(projects_directory_name)
             helmfile_path = project_path / "helmfile.yaml"
             if helmfile_path.exists():
@@ -195,14 +251,14 @@ def _main():
                     helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
 
                 for release in helmfile["releases"]:
-                        destination = project_path.parent / release['name']
-                        if destination in destinations:
-                            print(f'Destination {destination} already used')
-                        destinations.add(destination)
+                    destination = project_path.parent / release["name"]
+                    if destination in destinations:
+                        print(f"Destination {destination} already used")
+                    destinations.add(destination)
             else:
                 destination = project_path.parent / project_path.name
                 if destination in destinations:
-                    print(f'Destination {destination} already used')
+                    print(f"Destination {destination} already used")
                 destinations.add(destination)
         print("Destinations")
         print("------------")
@@ -210,69 +266,69 @@ def _main():
             print(destination)
 
         print()
-        print(f'{len(destinations)} projects found')
+        print(f"{len(destinations)} projects found")
 
         sys.exit(0)
 
     if args.finalize_status:
-        print('Projects to finalize:')
-        for helmfile_filename in [*glob.glob("apps/int/**/helmfile-base.yaml", recursive=True), *glob.glob("apps/prod/**/helmfile-base.yaml", recursive=True)]:
+        print("Projects to finalize:")
+        for helmfile_filename in [
+            *glob.glob("apps/int/**/helmfile-base.yaml", recursive=True),
+            *glob.glob("apps/prod/**/helmfile-base.yaml", recursive=True),
+        ]:
             with open(helmfile_filename) as helmfile_file:
                 helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
 
-            if 'repositories' in helmfile:
-                print(f'Project {helmfile_filename} still have repositories')
+            if "repositories" in helmfile:
+                print(f"Project {helmfile_filename} still have repositories")
 
-            helmfile_yaml = Path(helmfile_filename).parent / 'helmfile.yaml'
+            helmfile_yaml = Path(helmfile_filename).parent / "helmfile.yaml"
             if helmfile_yaml.exists():
-                print(f'Project {helmfile_filename} still have a helmfile.yaml')
+                print(f"Project {helmfile_filename} still have a helmfile.yaml")
 
         sys.exit(0)
 
     if args.finalize is not None:
-      commits_files = []
-      for helmfile_filename in glob.glob(f"{args.finalize}/**/helmfile-base.yaml", recursive=True):
-        helmfile_path = Path(helmfile_filename)
-        if not helmfile_path.exists():
-            print(f'{helmfile_path} does not exist')
-            sys.exit(1)
+        commits_files = []
+        for helmfile_filename in glob.glob(f"{args.finalize}/**/helmfile-base.yaml", recursive=True):
+            helmfile_path = Path(helmfile_filename)
+            if not helmfile_path.exists():
+                print(f"{helmfile_path} does not exist")
+                sys.exit(1)
 
-        ruamel_yaml = ruamel.yaml.YAML()
-        with open(helmfile_path) as helmfile_file:
-            helmfile = ruamel_yaml.load(helmfile_file)
+            ruamel_yaml = ruamel.yaml.YAML()
+            with open(helmfile_path) as helmfile_file:
+                helmfile = ruamel_yaml.load(helmfile_file)
 
-        if 'repositories' in helmfile:
-            print(f'Remove repositories from {helmfile_path}')
-            helmfile.pop('repositories')
-            if not args.dry_run:
-                with open(helmfile_path, 'w') as helmfile_file:
-                    ruamel_yaml.dump(helmfile, helmfile_file)
-                commits_files.append(helmfile_path)
+            if "repositories" in helmfile:
+                print(f"Remove repositories from {helmfile_path}")
+                helmfile.pop("repositories")
+                if not args.dry_run:
+                    with open(helmfile_path, "w") as helmfile_file:
+                        ruamel_yaml.dump(helmfile, helmfile_file)
+                    commits_files.append(helmfile_path)
 
+            helmfile_yaml = helmfile_path.parent / "helmfile.yaml"
+            if helmfile_yaml.exists():
+                print(f"git rm {helmfile_yaml}")
+                if not args.dry_run:
+                    subprocess.run(["git", "rm", helmfile_yaml], check=True)
 
-        helmfile_yaml = helmfile_path.parent / 'helmfile.yaml'
-        if helmfile_yaml.exists():
-            print(f"git rm {helmfile_yaml}")
-            if not args.dry_run:
-                subprocess.run(["git", "rm", helmfile_yaml], check=True)
-
-
-      if not args.dry_run and args.commit_message:
-        subprocess.run(["git", "add", *commits_files], check=True)
-        proc = subprocess.run(["git", "commit", "-m", args.commit_message], check=False)
-        if proc.returncode != 0:
+        if not args.dry_run and args.commit_message:
             subprocess.run(["git", "add", *commits_files], check=True)
-            proc = subprocess.run(["git", "commit", "-m", args.commit_message], check=True)
-      sys.exit(0)
-
+            proc = subprocess.run(["git", "commit", "-m", args.commit_message], check=False)
+            if proc.returncode != 0:
+                subprocess.run(["git", "add", *commits_files], check=True)
+                proc = subprocess.run(["git", "commit", "-m", args.commit_message], check=True)
+        sys.exit(0)
 
     if not args.helmfile:
-        print('Please provide a folder to migrate')
+        print("Please provide a folder to migrate")
         sys.exit(1)
 
     helmfile_path = Path(args.helmfile)
     if not helmfile_path.exists():
-        print(f'{helmfile_path} does not exist')
+        print(f"{helmfile_path} does not exist")
         sys.exit(1)
 
     with open(helmfile_path) as helmfile_file:
@@ -281,28 +337,37 @@ def _main():
     files_to_remove = {helmfile_path}
     files_to_add = set()
 
-    if len(helmfile.get('releases', [])) == 0:
+    if len(helmfile.get("releases", [])) == 0:
         application_path = helmfile_path.parent
         files_to_remove.clear()
         print(f"git mv {helmfile_path} {application_path / 'helmfile-base.yaml'}")
         if not args.dry_run:
-            subprocess.run(["git", "mv", helmfile_path, application_path / 'helmfile-base.yaml'])
-            with open(helmfile_path, 'w') as helmfile_file:
-                yaml.dump({
-                    'repositories': [],
-                    'releases': [],
-                }, helmfile_file)
-        if (application_path / 'values.yaml').exists():
+            subprocess.run(["git", "mv", helmfile_path, application_path / "helmfile-base.yaml"])
+            with open(helmfile_path, "w") as helmfile_file:
+                yaml.dump(
+                    {
+                        "repositories": [],
+                        "releases": [],
+                    },
+                    helmfile_file,
+                )
+        if (application_path / "values.yaml").exists():
             print(f"git mv {application_path / 'values.yaml'} {application_path / 'values-base.yaml'}")
             if not args.dry_run:
-                subprocess.run(["git", "mv", application_path / 'values.yaml', application_path / 'values-base.yaml'])
+                subprocess.run(
+                    ["git", "mv", application_path / "values.yaml", application_path / "values-base.yaml"]
+                )
         return
     for release in helmfile["releases"]:
-        if release['chart'] != '.':
-            _move_application(release, helmfile, helmfile_path, files_to_remove, files_to_add, args.dry_run, args.verbose)
+        if release["chart"] != ".":
+            _move_application(
+                release, helmfile, helmfile_path, files_to_remove, files_to_add, args.dry_run, args.verbose
+            )
     for release in helmfile["releases"]:
-        if release['chart'] == '.':
-            _move_application(release, helmfile, helmfile_path, files_to_remove, files_to_add, args.dry_run, args.verbose)
+        if release["chart"] == ".":
+            _move_application(
+                release, helmfile, helmfile_path, files_to_remove, files_to_add, args.dry_run, args.verbose
+            )
 
     for folder_to_remove in files_to_remove:
         print(f"git rm -r {folder_to_remove}")
@@ -316,5 +381,6 @@ def _main():
         subprocess.run(["pre-commit", "run", "prettier", *[f"--files={f}" for f in files_to_add]])
         subprocess.run(["git", "add", *files_to_add])
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     _main()

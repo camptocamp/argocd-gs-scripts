@@ -3,7 +3,6 @@
 import argparse
 import glob
 import os
-import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -12,10 +11,10 @@ from ruamel.yaml import YAML, CommentToken
 
 
 def _get_image_name(image_config: dict[str, str]) -> str:
-    image = f'{image_config["registry"]}/' if "registry" in image_config else ""
+    image = f"{image_config['registry']}/" if "registry" in image_config else ""
     image += image_config["repository"]
     if "tag" in image_config:
-        image += f':{image_config["tag"]}'
+        image += f":{image_config['tag']}"
     return image
 
 
@@ -93,7 +92,7 @@ class GitHubLogGroup:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Update the images hash.")
-    args = parser.parse_args()
+    parser.parse_args()
 
     yaml = YAML()
     yaml.default_flow_style = False
@@ -118,7 +117,7 @@ def main() -> None:
         if image.startswith("camptocamp/"):
             image_name, image_tag = image.split(":", 1)
             ghci_images[image] = {
-                "image": f'ghcr.io/{image_name}',
+                "image": f"ghcr.io/{image_name}",
                 "tag": image_tag,
             }
 

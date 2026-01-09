@@ -70,8 +70,7 @@ def main() -> None:
     apps = {
         app["metadata"]["name"]
         for app in app_list
-        if app["spec"]["source"]["repoURL"]
-        == f"git@github.com:{os.environ['GITHUB_REPOSITORY']}.git"
+        if app["spec"]["source"]["repoURL"] == f"git@github.com:{os.environ['GITHUB_REPOSITORY']}.git"
     }
 
     images = {}

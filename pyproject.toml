@@ -1,0 +1,8 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 110
+
+[project]
+name = "argocd-gs-scripts"
+classifiers = []
+dynamic = ["dependencies", "version"]

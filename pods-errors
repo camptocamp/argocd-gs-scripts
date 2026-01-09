@@ -32,7 +32,7 @@ def parse_eng(value, unit):
 
 def format_eng(value):
     power = math.floor(math.log(value, 1024))
-    return f"{value/1024**power:.2f}{_suffix[power]}"
+    return f"{value / 1024**power:.2f}{_suffix[power]}"
 
 
 EVICTED_RE = re.compile(
@@ -52,15 +52,15 @@ def get_formated_container_status(pod, duration=None):
                     container_status["lastState"]["terminated"]["message"].strip().split("\n")[-5:]
                 )
                 messages.append(
-                    f'Container {container_status["name"]} not ready: '
-                    f'{container_status["lastState"]["terminated"].get("reason", "")} '
+                    f"Container {container_status['name']} not ready: "
+                    f"{container_status['lastState']['terminated'].get('reason', '')} "
                     f"{message}\n---"
                 )
             elif "message" in container_status.get("state", {}).get("waiting", {}):
                 messages.append(
-                    f'Container {container_status["name"]} not ready: '
-                    f'{container_status["state"]["waiting"].get("reason", "")} '
-                    f'{container_status["state"]["waiting"]["message"]}'
+                    f"Container {container_status['name']} not ready: "
+                    f"{container_status['state']['waiting'].get('reason', '')} "
+                    f"{container_status['state']['waiting']['message']}"
                 )
             elif "message" in container_status.get("state", {}).get("terminated", {}):
 
@@ -76,19 +76,19 @@ def get_formated_container_status(pod, duration=None):
                     ]
                 )
                 messages.append(
-                    f'Container {container_status["name"]} not ready: '
-                    f'{container_status["state"]["terminated"].get("reason", "")}:\n'
+                    f"Container {container_status['name']} not ready: "
+                    f"{container_status['state']['terminated'].get('reason', '')}:\n"
                     f"{message}\n---"
                 )
             elif duration:
                 messages.append(
-                    f'Container {container_status["name"]} not ready: Restart count '
-                    f'{container_status["restartCount"]} for {duration}'
+                    f"Container {container_status['name']} not ready: Restart count "
+                    f"{container_status['restartCount']} for {duration}"
                 )
             else:
                 messages.append(
-                    f'Container {container_status["name"]} not ready: Restart count '
-                    f'{container_status["restartCount"]}'
+                    f"Container {container_status['name']} not ready: Restart count "
+                    f"{container_status['restartCount']}"
                 )
     return messages
 
@@ -143,10 +143,10 @@ def main():
                     messages += container_messages
                     reason = "wrong-container-sttatus"
                 else:
-                    messages.append(f'{pod["status"]["phase"]} - {pod["status"].get("reason")}')
+                    messages.append(f"{pod['status']['phase']} - {pod['status'].get('reason')}")
                     reason = "wrong-status"
             else:
-                messages.append(f'{pod["status"]["phase"]} - {pod["status"].get("reason")}: {message}')
+                messages.append(f"{pod['status']['phase']} - {pod['status'].get('reason')}: {message}")
 
         duration = datetime.datetime.utcnow() - dateutil.parser.isoparse(
             pod["metadata"]["creationTimestamp"]
@@ -166,14 +166,14 @@ def main():
                     and (not messages or condition["type"] not in ("ContainersReady", "Ready"))
                 ):
                     messages.append(
-                        f'Condition {condition["type"]} not reached: '
-                        f'{condition.get("reason", "")} '
-                        f'{condition.get("message", "")}'
+                        f"Condition {condition['type']} not reached: "
+                        f"{condition.get('reason', '')} "
+                        f"{condition.get('message', '')}"
                     )
                     reason = "wrong-sttatus"
 
             if pod["status"]["phase"] in ("Pending") and not messages:
-                messages.append(f'{pod["status"]["phase"]} for {duration}')
+                messages.append(f"{pod['status']['phase']} for {duration}")
                 reason = "wrong-phase"
         if messages:
             if args.json:
@@ -196,7 +196,7 @@ def main():
                 continue
             else:
                 for message in messages:
-                    print(f'{pod["metadata"]["name"]}: {message}')
+                    print(f"{pod['metadata']['name']}: {message}")
 
 
 if __name__ == "__main__":

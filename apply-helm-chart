@@ -54,9 +54,7 @@ def _thread_project(args: list[str | Path], output_file: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test to apply the HELM charts.")
-    parser.add_argument(
-        "--single", action="store_true", help="Single client repository."
-    )
+    parser.add_argument("--single", action="store_true", help="Single client repository.")
     args = parser.parse_args()
 
     folders = "*/" if args.single else "*/*/"
@@ -68,12 +66,8 @@ def main() -> None:
         chart_path = directory_path / "Chart.yaml"
 
         if chart_path.exists():
-            with GitHubLogGroup(
-                f"Process project {directory_path} as HELM chart project."
-            ):
-                _thread_project(
-                    [chart_path], Path("data/gen") / directory_path / "output.yaml"
-                )
+            with GitHubLogGroup(f"Process project {directory_path} as HELM chart project."):
+                _thread_project([chart_path], Path("data/gen") / directory_path / "output.yaml")
         else:
             print(f"Directory {directory_path} is not a project.")
 
