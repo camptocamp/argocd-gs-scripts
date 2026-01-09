@@ -3,7 +3,6 @@
 import argparse
 import glob
 import os
-import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -32,18 +31,30 @@ def _find_images(yaml: dict[str, Any], images: set[str], filename: str) -> None:
             _find_images(value, images, filename)
 
 
-def _update_images_sha(yaml: dict[str, Any], images_data: dict[str, dict[str, datetime]]) -> None:
+def _update_images_sha(
+    yaml: dict[str, Any], images_data: dict[str, dict[str, datetime]]
+) -> None:
     if not isinstance(yaml, dict):
         return
     for key, value in yaml.items():
         if key == "image":
-            if "repository" in value and "tag" in value and not value.get("lock", False):
-                at_least_old = datetime.now(timezone.utc) - timedelta(days=value.get("atleastOldDays", 0))
-                at_least_new = value.get("atleastDate", datetime(1970, 1, 1, tzinfo=timezone.utc))
+            if (
+                "repository" in value
+                and "tag" in value
+                and not value.get("lock", False)
+            ):
+                at_least_old = datetime.now(timezone.utc) - timedelta(
+                    days=value.get("atleastOldDays", 0)
+                )
+                at_least_new = value.get(
+                    "atleastDate", datetime(1970, 1, 1, tzinfo=timezone.utc)
+                )
                 if at_least_new > at_least_old:
                     shas = [
                         (sha, date)
-                        for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
+                        for sha, date in images_data.setdefault(
+                            _get_image_name(value), {}
+                        ).items()
                         if date >= at_least_new
                     ]
                     shas.sort(key=lambda x: x[1])
@@ -53,7 +64,9 @@ def _update_images_sha(yaml: dict[str, Any], images_data: dict[str, dict[str, da
                 else:
                     shas = [
                         (sha, date)
-                        for sha, date in images_data.setdefault(_get_image_name(value), {}).items()
+                        for sha, date in images_data.setdefault(
+                            _get_image_name(value), {}
+                        ).items()
                         if date <= at_least_old
                     ]
                     shas.sort(key=lambda x: x[1])
@@ -93,7 +106,7 @@ class GitHubLogGroup:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Update the images hash.")
-    args = parser.parse_args()
+    parser.parse_args()
 
     yaml = YAML()
     yaml.default_flow_style = False
@@ -118,7 +131,7 @@ def main() -> None:
         if image.startswith("camptocamp/"):
             image_name, image_tag = image.split(":", 1)
             ghci_images[image] = {
-                "image": f'ghcr.io/{image_name}',
+                "image": f"ghcr.io/{image_name}",
                 "tag": image_tag,
             }
 

@@ -49,7 +49,9 @@ def get_formated_container_status(pod, duration=None):
         if not container_status["ready"]:
             if "message" in container_status.get("lastState", {}).get("terminated", {}):
                 message = "\n".join(
-                    container_status["lastState"]["terminated"]["message"].strip().split("\n")[-5:]
+                    container_status["lastState"]["terminated"]["message"]
+                    .strip()
+                    .split("\n")[-5:]
                 )
                 messages.append(
                     f'Container {container_status["name"]} not ready: '
@@ -72,7 +74,9 @@ def get_formated_container_status(pod, duration=None):
                 message = "\n".join(
                     [
                         parse_json(msg)
-                        for msg in container_status["state"]["terminated"]["message"].strip().split("\n")[-5:]
+                        for msg in container_status["state"]["terminated"]["message"]
+                        .strip()
+                        .split("\n")[-5:]
                     ]
                 )
                 messages.append(
@@ -94,18 +98,26 @@ def get_formated_container_status(pod, duration=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Display the status of all pods that's not in a good state")
+    parser = argparse.ArgumentParser(
+        description="Display the status of all pods that's not in a good state"
+    )
     parser.add_argument("--rm-all", action="store_true", help="remove the pods")
-    parser.add_argument("--rm-evicted", action="store_true", help="remove the evicted pods")
+    parser.add_argument(
+        "--rm-evicted", action="store_true", help="remove the evicted pods"
+    )
     parser.add_argument("--json", action="store_true", help="full pod json output")
-    parser.add_argument("--start", default="10", help="the considered time to start a pod in minutes")
+    parser.add_argument(
+        "--start", default="10", help="the considered time to start a pod in minutes"
+    )
     parser.add_argument("namespace", help="the namespace")
     parser.add_argument("pod", nargs="?", help="do on only one pod")
     args = parser.parse_args()
 
     namespace = args.namespace
     pods = json.loads(
-        subprocess.check_output(["kubectl", f"--namespace={namespace}", "get", "pod", "--output=json"])
+        subprocess.check_output(
+            ["kubectl", f"--namespace={namespace}", "get", "pod", "--output=json"]
+        )
     )["items"]
     for pod in pods:
         if args.pod and pod["metadata"]["name"] != args.pod:
@@ -143,10 +155,14 @@ def main():
                     messages += container_messages
                     reason = "wrong-container-sttatus"
                 else:
-                    messages.append(f'{pod["status"]["phase"]} - {pod["status"].get("reason")}')
+                    messages.append(
+                        f'{pod["status"]["phase"]} - {pod["status"].get("reason")}'
+                    )
                     reason = "wrong-status"
             else:
-                messages.append(f'{pod["status"]["phase"]} - {pod["status"].get("reason")}: {message}')
+                messages.append(
+                    f'{pod["status"]["phase"]} - {pod["status"].get("reason")}: {message}'
+                )
 
         duration = datetime.datetime.utcnow() - dateutil.parser.isoparse(
             pod["metadata"]["creationTimestamp"]
@@ -163,7 +179,10 @@ def main():
                 if (
                     condition["status"] != "True"
                     and condition["reason"] != "PodCompleted"
-                    and (not messages or condition["type"] not in ("ContainersReady", "Ready"))
+                    and (
+                        not messages
+                        or condition["type"] not in ("ContainersReady", "Ready")
+                    )
                 ):
                     messages.append(
                         f'Condition {condition["type"]} not reached: '

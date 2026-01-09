@@ -9,7 +9,14 @@ import json
 import re
 import sys
 
-COLORS = {"DEBUG": 30, "INFO": 32, "WARNING": 31, "WARN": 31, "ERROR": "41;37", "CRITICAL": "41;37"}
+COLORS = {
+    "DEBUG": 30,
+    "INFO": 32,
+    "WARNING": 31,
+    "WARN": 31,
+    "ERROR": "41;37",
+    "CRITICAL": "41;37",
+}
 TIMESTAMP_RE = re.compile(r"\d+/\d+/\d+ \d+:\d+:\d+ [AP]M *(\{.*)")
 
 
@@ -35,7 +42,9 @@ def print_line(line: str) -> None:
                 and "source_facility" in parsed
                 and "msg" in parsed
             ):
-                cur_time = datetime.datetime.fromtimestamp(parsed["timestamp"]).strftime("%H:%M:%S.%f")
+                cur_time = datetime.datetime.fromtimestamp(
+                    parsed["timestamp"]
+                ).strftime("%H:%M:%S.%f")
                 file = f"{parsed['source_facility']}:{parsed.get('line', -1)}"
                 print(
                     f"{cur_time} {color_level(parsed['level_name'])} {colorize(35, file)} {parsed['msg']}"
@@ -60,11 +69,14 @@ def print_line(line: str) -> None:
                 if "full_message" in parsed:
                     print(parsed["full_message"])
             # For Nextcloud
-            elif isinstance(parsed.get("message"), dict) and "Message" in parsed['message']:
-                print(parsed['message']['Message'], end='\r\n')
+            elif (
+                isinstance(parsed.get("message"), dict)
+                and "Message" in parsed["message"]
+            ):
+                print(parsed["message"]["Message"], end="\r\n")
             elif "message" in parsed.keys():
-                print(parsed['level'], parsed['time'], parsed['message'], end='\r\n')
-                #print(parsed.keys(), end='\r\n')
+                print(parsed["level"], parsed["time"], parsed["message"], end="\r\n")
+                # print(parsed.keys(), end='\r\n')
             # End for Nextcloud
             else:
                 print(line.strip())
@@ -79,16 +91,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         usage="kubectl logs ... | %(prog)s [options]",
         description="Parse and display json logs as output by c2cwsgiutils applications. Just pipe the logs to this script.",
-        epilog=
-        "\n".join([
-            "Standard example:",
-        "kubectl -n gmf-mutualize-int logs --tail=10 deployments/amber-app-tcc | scripts/parse-logs",
-        "Example with Nextcloud:",
-        "kubectl -n gmf-morgescjl-int exec -ti deployments/nextcloud -- tail -n 10 -f data/nextcloud.log | scripts/parse-logs"
-        ]),
-        formatter_class=argparse.RawTextHelpFormatter
+        epilog="\n".join(
+            [
+                "Standard example:",
+                "kubectl -n gmf-mutualize-int logs --tail=10 deployments/amber-app-tcc | scripts/parse-logs",
+                "Example with Nextcloud:",
+                "kubectl -n gmf-morgescjl-int exec -ti deployments/nextcloud -- tail -n 10 -f data/nextcloud.log | scripts/parse-logs",
+            ]
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
     )
-    args = parser.parse_args()
+    parser.parse_args()
 
     try:
         for line in sys.stdin:
