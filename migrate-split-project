@@ -166,7 +166,7 @@ def _main():
                 helmfile = yaml.load(helmfile_file, Loader=yaml.SafeLoader)
 
             if len(helmfile["releases"]) > 1:
-                print(f'Project {helmfile_filename} is not splitted')
+                print(f'Project {helmfile_filename} is not split')
                 continue
 
             for release in helmfile["releases"]:
