@@ -44,7 +44,7 @@ scripts/pg_restore gmf-demo-int database-gmf-demo ../demo.backup -Fc --no-owner 
             print(f" (cat {args.backup_file} | {env_str} {shlex.join(cmd)})")
             sys.exit(0)
 
-        print(f'Used database: {decoded_secrets["database"]}')
+        print(f"Used database: {decoded_secrets['database']}")
 
         proc = subprocess.run(cmd, env=env, stdin=backup_file)  # pylint: disable=subprocess-run-check
 

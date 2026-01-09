@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
-from datetime import  datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import argparse
 import yaml
+
 
 def _main():
     parser = argparse.ArgumentParser(description="Cleanup the data/images.yaml file.")
@@ -25,6 +26,7 @@ def _main():
 
     with open("data/images.yaml", "w") as f:
         yaml.dump(images, f)
+
 
 if __name__ == "__main__":
     _main()
