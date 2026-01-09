@@ -24,7 +24,17 @@ class GitHubLogGroup:
 
 
 def _thread_project(args: list[str | Path], output_file: Path) -> None:
+    print(f"Process project to output file {output_file}.")
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    if not output_file.exists():
+        # Add an empty file in Git
+        with output_file.open("w"):
+            pass
+        try:
+            subprocess.run(["git", "add", str(output_file)], check=True)
+        except subprocess.CalledProcessError:
+            print(f"Error during git add of file {output_file}.")
+            sys.exit(1)
     try:
         subprocess.run(
             [
