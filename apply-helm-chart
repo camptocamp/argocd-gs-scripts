@@ -64,7 +64,11 @@ def _thread_project(args: list[str | Path], output_file: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test to apply the HELM charts.")
-    parser.add_argument("--single", action="store_true", help="Single client repository.")
+    parser.add_argument(
+        "--single",
+        action="store_true",
+        help="Use single-level directory structure (apps/env/app/) instead of two-level structure (apps/env/client/app/).",
+    )
     args = parser.parse_args()
 
     folders = "*/" if args.single else "*/*/"
