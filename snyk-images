@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
+import glob
 import os
 import subprocess
 import sys
@@ -46,6 +46,15 @@ def main() -> None:
     - Extract all Docker images from generated Kubernetes manifest
     - Run Snyk on each Docker image
     """
+    parser = argparse.ArgumentParser(
+        description="Test and monitor Docker images used in ArgoCD applications with Snyk.",
+    )
+    parser.add_argument(
+        "--single",
+        action="store_true",
+        help="Use single-level directory structure (apps/env/app/) instead of two-level structure (apps/env/client/app/).",
+    )
+    args = parser.parse_args()
 
     image_hash_tag = {}
     with open("data/images.yaml", encoding="utf-8") as images_file:
@@ -53,53 +62,19 @@ def main() -> None:
             for hash in hash_list:
                 image_hash_tag[hash] = image
 
-    parser = argparse.ArgumentParser(
-        description="Test the used in ArgoCD application images against high vulnerabilities, and monitor them, all that with Snyk."
-    )
-    parser.parse_args()
-
-    # Get ArgoCD applications from Kubernetes cluster (because we do not have such information locally)
-    app_list = json.loads(
-        subprocess.run(
-            ["argocd", "app", "list", "--output=json"],
-            stdout=subprocess.PIPE,
-            check=True,
-            encoding="utf-8",
-        ).stdout
-    )
-    apps = {
-        app["metadata"]["name"]
-        for app in app_list
-        if app["spec"]["source"]["repoURL"] == f"git@github.com:{os.environ['GITHUB_REPOSITORY']}.git"
-    }
-
+    # Discover ArgoCD application directories from the local filesystem
     images = {}
-    for app in apps:
-        app_details = yaml.load(
-            subprocess.run(
-                [
-                    "argocd",
-                    "app",
-                    "get",
-                    app,
-                    "--output=yaml",
-                ],
-                check=True,
-                stdout=subprocess.PIPE,
-                encoding="utf-8",
-            ).stdout,
-            Loader=yaml.SafeLoader,
-        )
-        app_name = app_details["spec"]["source"]["path"]
-        print(f"Get images from {app_name}")
-        sys.stdout.flush()
-
-        project_path = Path(app_details["spec"]["source"]["path"])
+    folders = "*/" if args.single else "*/*/"
+    for directory_name in [
+        *glob.glob(f"apps/int/{folders}"),
+        *glob.glob(f"apps/prod/{folders}"),
+    ]:
+        project_path = Path(directory_name)
         helm_chart_path = project_path / "Chart.yaml"
         if helm_chart_path.exists():
             # Run Helm template on each application
             # Extract all Docker images from generated Kubernetes manifest
-            print(f"::group::Get images from {app_name}")
+            print(f"::group::Get images from {project_path}")
             new_images = get_images(
                 yaml.load_all(
                     subprocess.run(
@@ -118,10 +93,10 @@ def main() -> None:
             print("Found images:")
             for image in new_images:
                 print(image)
-                images.setdefault(image, set()).add(app_name)
+                images.setdefault(image, set()).add(str(project_path))
             print("::endgroup::")
         else:
-            print(f'::warning::No helmfile.yaml found in "{app_name}"')
+            print(f'::warning::No Chart.yaml found in "{project_path}"')
 
     # Run Snyk on each Docker image
     env = {**os.environ}
