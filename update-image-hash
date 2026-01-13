@@ -28,7 +28,9 @@ def _find_images(yaml: dict[str, Any], images: set[str], filename: str) -> None:
             if "repository" in value and "tag" in value:
                 images.add(_get_image_name(value))
             else:
-                print(f"::warning::{filename}: Unsupported image: {value}")
+                print(
+                    f"::warning::{filename}: The sha will not be generated for this image: {value} (fields `repository` and `tag` are required)."
+                )
         elif isinstance(value, dict):
             _find_images(value, images, filename)
 
