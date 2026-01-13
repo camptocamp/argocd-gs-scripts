@@ -23,7 +23,7 @@ class GitHubLogGroup:
             print(f"With {exc_value} error.")
 
 
-def _thread_project(args: list[str | Path], output_file: Path) -> None:
+def _thread_project(args: list[str | Path], output_file: Path, apply: bool) -> None:
     print(f"Process project to output file {output_file}.")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     if not output_file.exists():
@@ -49,17 +49,18 @@ def _thread_project(args: list[str | Path], output_file: Path) -> None:
         print("Error during templating.")
         sys.exit(1)
 
-    try:
-        subprocess.run(
-            ["kubectl", "apply", f"--filename={output_file}"],
-            check=True,
-        )
-        subprocess.run(["kubectl", "delete", f"--filename={output_file}"])
-    except subprocess.CalledProcessError:
-        print("Error during apply.")
-        with output_file.open(encoding="utf-8") as f:
-            print(f.read())
-        sys.exit(1)
+    if apply:
+        try:
+            subprocess.run(
+                ["kubectl", "apply", f"--filename={output_file}"],
+                check=True,
+            )
+            subprocess.run(["kubectl", "delete", f"--filename={output_file}"])
+        except subprocess.CalledProcessError:
+            print("Error during apply.")
+            with output_file.open(encoding="utf-8") as f:
+                print(f.read())
+            sys.exit(1)
 
 
 def main() -> None:
@@ -68,6 +69,11 @@ def main() -> None:
         "--single",
         action="store_true",
         help="Use single-level directory structure (apps/env/app/) instead of two-level structure (apps/env/client/app/).",
+    )
+    parser.add_argument(
+        "--generate-only",
+        action="store_true",
+        help="Only generate the output files without applying them.",
     )
     args = parser.parse_args()
 
@@ -81,7 +87,9 @@ def main() -> None:
 
         if chart_path.exists():
             with GitHubLogGroup(f"Process project {directory_path} as HELM chart project."):
-                _thread_project([chart_path], Path("data/gen") / directory_path / "output.yaml")
+                _thread_project(
+                    [chart_path], Path("data/gen") / directory_path / "output.yaml", not args.generate_only
+                )
         else:
             print(f"Directory {directory_path} is not a project.")
 
