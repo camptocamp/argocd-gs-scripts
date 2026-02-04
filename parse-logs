@@ -58,6 +58,8 @@ def print_line(line: str) -> None:
                 )
                 if "full_message" in parsed:
                     print(parsed["full_message"])
+                if "stack_trace" in parsed:
+                    print(parsed["stack_trace"])
             # For Nextcloud
             elif isinstance(parsed.get("message"), dict) and "Message" in parsed["message"]:
                 print(parsed["message"]["Message"], end="\r\n")
