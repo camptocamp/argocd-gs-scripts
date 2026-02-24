@@ -2,12 +2,13 @@
 
 import argparse
 import os
-import hashlib
 import json
 import shlex
 import signal
 import subprocess
 import sys
+from pathlib import Path
+import yaml
 
 
 def _get_secret(keyvault: str, keyvault_key: str) -> str:
@@ -41,10 +42,10 @@ def get_secrets(keyvault: str, database: str) -> dict[str, str]:
 
 
 # Also used by pg-restore
-def get_env(decoded_secrets: dict[str, str]) -> dict[str, str]:
+def get_env(decoded_secrets: dict[str, str], namespace: str) -> dict[str, str]:
     return {
         **os.environ,
-        "PGHOST": "odyssey.apps.gs-ch-prod.camptocamp.com",
+        "PGHOST": f"{namespace}.karst.apps.gs-ch-prod.camptocamp.com",
         "PGPORT": "5432",
         "PGDATABASE": decoded_secrets["database"],
         "PGUSER": decoded_secrets["username"],
@@ -58,17 +59,22 @@ if __name__ == "__main__":
         description="Run psql with the credentials from Azure Keyvault.",
         usage="scripts/psql gmf-demoprod-kv gmf",
     )
-    parser.add_argument("--odyssey", action="store_true", help="Get the configuration for Odyssey")
     parser.add_argument("--display", action="store_true", help="Display the credentials")
     parser.add_argument(
         "--dry-run", action="store_true", help="Display the command to run without executing it"
     )
-    parser.add_argument("keyvault", nargs=1, help="The keyvault name")
+    parser.add_argument("namespace", help="The namespace name")
     parser.add_argument("database", nargs="?", help="The database nick name")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
-    keyvault = args.keyvault[0]
+    keyvault_path = Path("data/keyvaults.yaml")
+    keyvault_mapping = {}
+    if keyvault_path.is_file():
+        with keyvault_path.open() as f:
+            keyvault_mapping = yaml.safe_load(f)
+
+    keyvault = keyvault_mapping.get(args.namespace, f"{args.namespace}-kv")
     if args.database is None:
         proc = subprocess.run(
             ["az", "keyvault", "secret", "list", f"--vault-name={keyvault}"],
@@ -84,26 +90,7 @@ if __name__ == "__main__":
 
     decoded_secrets = get_secrets(keyvault, database)
 
-    if args.odyssey:
-        short_name = keyvault[:-6] if keyvault.endswith("int-kv") else keyvault[:-7]
-        env = "int" if keyvault.endswith("int-kv") else "prod"
-        print(
-            f"""
-To add in this file https://github.com/camptocamp/argocd-shelter-cluster-apps/blob/main/apps/prod/gs/ch/odyssey/secrets.yaml
-With SOPS:
-
-            {short_name}-{database}-{env}:
-                storage: gmf_{env}
-                username: {decoded_secrets["username"]}
-                database: {decoded_secrets["database"]}
-                password: md5{hashlib.md5((decoded_secrets["password"] + decoded_secrets["username"]).encode()).hexdigest()}
-                options:
-                    authentication: md5
-"""
-        )
-        sys.exit(0)
-
-    env = get_env(decoded_secrets)
+    env = get_env(decoded_secrets, args.namespace)
     if args.display:
         for key, value in env.items():
             print(f"{key}={value}")
