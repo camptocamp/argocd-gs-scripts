@@ -23,31 +23,33 @@ class GitHubLogGroup:
             print(f"With {exc_value} error.")
 
 
-def _thread_project(args: list[str | Path], output_file: Path, apply: bool) -> bool:
+def _thread_project(args: list[str | Path], output_file: Path, apply: bool, generate: bool) -> bool:
     print(f"Process project to output file {output_file}.")
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    if not output_file.exists():
-        # Add an empty file in Git
-        with output_file.open("w"):
-            pass
+
+    if generate:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        if not output_file.exists():
+            # Add an empty file in Git
+            with output_file.open("w"):
+                pass
+            try:
+                subprocess.run(["git", "add", str(output_file)], check=True)
+            except subprocess.CalledProcessError:
+                print(f"Error during git add of file {output_file}.")
+                return False
         try:
-            subprocess.run(["git", "add", str(output_file)], check=True)
+            subprocess.run(
+                [
+                    "scripts/template-gen",
+                    "--debug",
+                    f"--output={output_file}",
+                    *args,
+                ],
+                check=True,
+            )
         except subprocess.CalledProcessError:
-            print(f"Error during git add of file {output_file}.")
+            print("Error during templating.")
             return False
-    try:
-        subprocess.run(
-            [
-                "scripts/template-gen",
-                "--debug",
-                f"--output={output_file}",
-                *args,
-            ],
-            check=True,
-        )
-    except subprocess.CalledProcessError:
-        print("Error during templating.")
-        return False
 
     if apply:
         try:
@@ -65,20 +67,39 @@ def _thread_project(args: list[str | Path], output_file: Path, apply: bool) -> b
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Test to apply the HELM charts.")
+    parser = argparse.ArgumentParser(
+        description="Test to apply the output files or generate the HELM charts."
+    )
     parser.add_argument(
         "--single",
         action="store_true",
         help="Use single-level directory structure (apps/env/app/) instead of two-level structure (apps/env/client/app/).",
     )
     parser.add_argument(
+        "--generate",
+        action="store_true",
+        help="Generate the output files.",
+    )
+    parser.add_argument(
         "--generate-only",
         action="store_true",
-        help="Only generate the output files without applying them.",
+        help="Alias of --generate, --no-apply.",
+    )
+    parser.add_argument(
+        "--no-apply",
+        action="store_false",
+        dest="apply",
+        help="Do not apply the generated output files.",
     )
     args = parser.parse_args()
 
     full_success = True
+
+    generate = args.generate or args.generate_only
+    apply = args.apply and not args.generate_only
+
+    if not apply and not generate:
+        parser.error("--no-apply can only be used together with --generate or --generate-only")
 
     folders = "*/" if args.single else "*/*/"
     for directory_name in [
@@ -91,10 +112,10 @@ def main() -> None:
         if chart_path.exists():
             with GitHubLogGroup(f"Process project {directory_path} as HELM chart project."):
                 success = _thread_project(
-                    [chart_path], Path("data/gen") / directory_path / "output.yaml", not args.generate_only
+                    [chart_path], Path("data/gen") / directory_path / "output.yaml", apply, generate
                 )
                 full_success = full_success and success
-                if not success and not args.generate_only:
+                if not success and not generate:
                     sys.exit(1)
 
         else:
