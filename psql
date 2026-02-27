@@ -42,9 +42,9 @@ def get_secrets(keyvault: str, database: str) -> dict[str, str]:
 
 
 # Also used by pg-restore
-def get_env(decoded_secrets: dict[str, str], namespace: str) -> dict[str, str]:
+def get_env(decoded_secrets: dict[str, str], namespace: str, extends: bool) -> dict[str, str]:
     return {
-        **os.environ,
+        **(os.environ if extends else {}),
         "PGHOST": f"{namespace}.karst.apps.gs-ch-prod.camptocamp.com",
         "PGPORT": "5432",
         "PGDATABASE": decoded_secrets["database"],
@@ -90,7 +90,7 @@ if __name__ == "__main__":
 
     decoded_secrets = get_secrets(keyvault, database)
 
-    env = get_env(decoded_secrets, args.namespace)
+    env = get_env(decoded_secrets, args.namespace, not args.display and not args.dry_run)
     if args.display:
         for key, value in env.items():
             print(f"{key}={value}")
