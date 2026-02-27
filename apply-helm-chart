@@ -23,7 +23,7 @@ class GitHubLogGroup:
             print(f"With {exc_value} error.")
 
 
-def _thread_project(args: list[str | Path], output_file: Path, apply: bool) -> None:
+def _thread_project(args: list[str | Path], output_file: Path, apply: bool) -> bool:
     print(f"Process project to output file {output_file}.")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     if not output_file.exists():
@@ -34,7 +34,7 @@ def _thread_project(args: list[str | Path], output_file: Path, apply: bool) -> N
             subprocess.run(["git", "add", str(output_file)], check=True)
         except subprocess.CalledProcessError:
             print(f"Error during git add of file {output_file}.")
-            sys.exit(1)
+            return False
     try:
         subprocess.run(
             [
@@ -47,7 +47,7 @@ def _thread_project(args: list[str | Path], output_file: Path, apply: bool) -> N
         )
     except subprocess.CalledProcessError:
         print("Error during templating.")
-        sys.exit(1)
+        return False
 
     if apply:
         try:
@@ -60,7 +60,8 @@ def _thread_project(args: list[str | Path], output_file: Path, apply: bool) -> N
             print("Error during apply.")
             with output_file.open(encoding="utf-8") as f:
                 print(f.read())
-            sys.exit(1)
+            return False
+    return True
 
 
 def main() -> None:
@@ -77,6 +78,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    full_success = True
+
     folders = "*/" if args.single else "*/*/"
     for directory_name in [
         *glob.glob(f"apps/int/{folders}", recursive=True),
@@ -87,11 +90,19 @@ def main() -> None:
 
         if chart_path.exists():
             with GitHubLogGroup(f"Process project {directory_path} as HELM chart project."):
-                _thread_project(
+                success = _thread_project(
                     [chart_path], Path("data/gen") / directory_path / "output.yaml", not args.generate_only
                 )
+                full_success = full_success and success
+                if not success and not args.generate_only:
+                    sys.exit(1)
+
         else:
             print(f"Directory {directory_path} is not a project.")
+
+    if not full_success:
+        print("Some projects failed to apply.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

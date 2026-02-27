@@ -5,6 +5,7 @@ import pathlib
 import shlex
 import subprocess
 import sys
+import yaml
 from importlib.machinery import SourceFileLoader
 
 psql = SourceFileLoader("psql", str(pathlib.Path(__file__).absolute().with_name("psql"))).load_module()
@@ -17,14 +18,21 @@ Run pg_restore on the tools container like:
 scripts/pg_restore gmf-demo-int database-gmf-demo ../demo.backup -Fc --no-owner --no-privileges --verbose
 """
     )
-    parser.add_argument("keyvault", nargs=1, help="The keyvault name")
-    parser.add_argument("database", nargs=1, help="The database nick name")
+    parser.add_argument("namespace", help="The namespace name")
+    parser.add_argument("database", help="The database nick name")
     parser.add_argument("backup_file", nargs="?", help="The backup file")
     parser.add_argument("--dry-run", action="store_true", help="Display the credentials")
     parser.add_argument("arguments", nargs=argparse.REMAINDER, help="The pg_restore arguments")
     args = parser.parse_args()
 
-    decoded_secrets = psql.get_secrets(args.keyvault[0], args.database[0])
+    keyvault_path = pathlib.Path("data/keyvaults.yaml")
+    keyvault_mapping = {}
+    if keyvault_path.is_file():
+        with keyvault_path.open() as f:
+            keyvault_mapping = yaml.safe_load(f)
+    keyvault = keyvault_mapping.get(args.namespace, f"{args.namespace}-kv")
+
+    decoded_secrets = psql.get_secrets(keyvault, args.database)
 
     if args.backup_file is None:
         print("The backup file is required")
@@ -38,7 +46,7 @@ scripts/pg_restore gmf-demo-int database-gmf-demo ../demo.backup -Fc --no-owner 
         ]
         print(f"cat {args.backup_file} | {shlex.join(cmd)}")
 
-        env = psql.get_env(decoded_secrets)
+        env = psql.get_env(decoded_secrets, args.namespace, not args.dry_run)
         if args.dry_run:
             env_str = " ".join(["=".join(e) for e in env.items()])
             print(f" (cat {args.backup_file} | {env_str} {shlex.join(cmd)})")
