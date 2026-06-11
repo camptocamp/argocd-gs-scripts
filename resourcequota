@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+
+import argparse
+import re
+import subprocess
+import sys
+
+
+_BINARY_UNITS = {
+    "Ki": 1024,
+    "Mi": 1024**2,
+    "Gi": 1024**3,
+    "Ti": 1024**4,
+    "Pi": 1024**5,
+    "Ei": 1024**6,
+}
+
+_DECIMAL_UNITS = {
+    "n": 1000**-3,
+    "u": 1000**-2,
+    "m": 1000**-1,
+    "": 1,
+    "k": 1000,
+    "M": 1000**2,
+    "G": 1000**3,
+    "T": 1000**4,
+    "P": 1000**5,
+    "E": 1000**6,
+}
+
+_QUANTITY_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)([a-zA-Z]*)$")
+
+
+def parse_quantity(value):
+    match = _QUANTITY_RE.match(value)
+    if not match:
+        raise ValueError(f"Unsupported quantity format: {value}")
+
+    number = float(match.group(1))
+    suffix = match.group(2)
+
+    if suffix in _BINARY_UNITS:
+        return number * _BINARY_UNITS[suffix]
+    if suffix in _DECIMAL_UNITS:
+        return number * _DECIMAL_UNITS[suffix]
+    raise ValueError(f"Unsupported quantity suffix: {suffix}")
+
+
+def format_value(resource, value):
+    if resource in {"memory", "ephemeral-storage", "storage"} or resource.endswith(
+        (".memory", ".ephemeral-storage", ".storage")
+    ):
+        gib = parse_quantity(value) / (1024**3)
+        return f"{gib:.1f} Gi"
+    if resource.endswith(".cpu") or resource == "cpu":
+        cpu = parse_quantity(value)
+        return f"{cpu:.3f}".rstrip("0").rstrip(".")
+    return value
+
+
+def compute_percentage(used, hard):
+    used_value = parse_quantity(used)
+    hard_value = parse_quantity(hard)
+    if hard_value == 0:
+        return "n/a"
+    ratio = used_value / hard_value * 100
+    return f"{ratio:.1f}%"
+
+
+def parse_describe_output(output):
+    rows = []
+    current_quota = ""
+    in_table = False
+
+    for raw_line in output.splitlines():
+        line = raw_line.rstrip("\n")
+
+        if line.startswith("Name:"):
+            current_quota = line.split(":", 1)[1].strip()
+            in_table = False
+            continue
+
+        if line.startswith("Resource") and "Used" in line and "Hard" in line:
+            in_table = True
+            continue
+
+        if not in_table:
+            continue
+
+        stripped = line.strip()
+        if not stripped:
+            in_table = False
+            continue
+        if stripped.startswith("--------"):
+            continue
+
+        parts = re.split(r"\s+", stripped)
+        if len(parts) < 3:
+            continue
+
+        resource = parts[0]
+        used = parts[1]
+        hard = parts[2]
+        rows.append((current_quota, resource, used, hard))
+
+    return rows
+
+
+def print_table(rows):
+    header = ["ResourceQuota", "Resource", "Used", "Hard", "Percentage"]
+    table = []
+
+    for quota, resource, used, hard in rows:
+        used_display = format_value(resource, used)
+        hard_display = format_value(resource, hard)
+        percentage = compute_percentage(used, hard)
+        table.append([quota, resource, used_display, hard_display, percentage])
+
+    widths = [len(column) for column in header]
+    for row in table:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+
+    def fmt(values):
+        return "  ".join(value.ljust(widths[index]) for index, value in enumerate(values))
+
+    print(fmt(header))
+    print("  ".join("-" * width for width in widths))
+    for row in table:
+        print(fmt(row))
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Show resourcequota usage (Used/Hard/Percentage) from kubectl describe"
+    )
+    parser.add_argument("namespace", help="Kubernetes namespace")
+    args = parser.parse_args()
+
+    proc = subprocess.run(
+        ["kubectl", "-n", args.namespace, "describe", "resourcequotas"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        sys.exit(proc.returncode)
+
+    rows = parse_describe_output(proc.stdout)
+    if not rows:
+        print("No resourcequotas found.")
+        return
+
+    print_table(rows)
+
+
+if __name__ == "__main__":
+    main()

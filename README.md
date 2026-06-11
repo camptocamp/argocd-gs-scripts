@@ -26,6 +26,10 @@ Helper to parse the JSON logs of a container.
 
 Helper to get all the pod on errors.
 
+## `resourcequota`
+
+Helper to display `kubectl describe resourcequotas` output as a table with `Used`, `Hard`, and `Percentage`.
+
 ## `psql`
 
 Helper to connect to the database, cal also be used to run `pg_dump` and `pg_restore` (run all of them locally with the database credentials).
