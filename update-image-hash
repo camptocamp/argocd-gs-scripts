@@ -107,6 +107,7 @@ def main() -> None:
     images = set(args.images)
     ru_yaml = YAML()
     ru_yaml.default_flow_style = False
+    ru_yaml.preserve_quotes = True
 
     used_images = set()
     for filename in glob.glob("**/*.yaml", recursive=True):
