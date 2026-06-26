@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import subprocess
+import sys
+
+_RESOURCES = [
+    "deployments.apps",
+    "cm",
+    "service",
+    "cronjobs.batch",
+    "ingress",
+    "job",
+    "githubwebhooks.camptocamp.com",
+    "githubwebhooksint.camptocamp.com",
+    "sharedconfigconfigs.camptocamp.com",
+    "sharedconfigconfigsint.camptocamp.com",
+    "sharedconfigsources.camptocamp.com",
+    "sharedconfigsourcesint.camptocamp.com",
+    "podmonitors.monitoring.coreos.com",
+    "pdb",
+    "role",
+    "rolebindings.rbac.authorization.k8s.io",
+]
+
+
+def _main():
+    parser = argparse.ArgumentParser(description="Delete all Kubernetes resources matching a substring.")
+    parser.add_argument("namespace", help="Target namespace")
+    parser.add_argument("substring", help="Substring to match in resource names (e.g. my-app)")
+    parser.add_argument(
+        "--do",
+        action="store_true",
+        dest="do_it",
+        help="Actually delete resources (default: dry-run)",
+    )
+    args = parser.parse_args()
+
+    if not args.substring:
+        parser.error("substring must be a non-empty substring")
+    for res in _RESOURCES:
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", res, f"--namespace={args.namespace}", "--output=json"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"Timeout on {res}", file=sys.stderr)
+            continue
+
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout).strip()
+            print(f"Failed to get {res}: {err or 'unknown error'}", file=sys.stderr)
+            continue
+
+        try:
+            items = json.loads(result.stdout).get("items", [])
+        except json.JSONDecodeError as e:
+            out = (result.stdout or "").strip()
+            print(f"Failed to parse JSON for {res}: {e}. Output was: {out[:200]}", file=sys.stderr)
+            continue
+
+        targets = []
+        for item in items:
+            name = item["metadata"]["name"]
+            if args.substring in name:
+                targets.append(name)
+
+        if not targets:
+            continue
+
+        if args.do_it:
+            print(f"--- Deleting {res} ---")
+            for name in targets:
+                cmd = [
+                    "kubectl",
+                    "delete",
+                    res,
+                    name,
+                    f"--namespace={args.namespace}",
+                    "--wait=false",
+                    "--ignore-not-found=true",
+                ]
+                print(f"  Deleting: {name}")
+                try:
+                    delete_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                except subprocess.TimeoutExpired:
+                    print(f"  Timeout on {res}/{name}", file=sys.stderr)
+                    continue
+                if delete_result.returncode != 0:
+                    err = (delete_result.stderr or delete_result.stdout).strip()
+                    print(f"  Failed to delete {name}: {err or 'unknown error'}", file=sys.stderr)
+        else:
+            print(f"--- {res} [DRY-RUN] ---")
+            for name in targets:
+                print(f"  {name}")
+            print()
+
+    if not args.do_it:
+        print("\n[DRY-RUN] No resources were deleted. Use --do to actually delete.")
+
+
+if __name__ == "__main__":
+    _main()
