@@ -11,8 +11,6 @@ Usage: `delete-k8s-resources <namespace> <substring>`
 - Defaults to dry-run mode (lists resources without deleting)
 - Use `--do` to actually delete resources
 
-Supported resource types (keep in sync with `_RESOURCES` in `delete-k8s-resources`): deployments.apps, cm, service, cronjobs.batch, ingress, job, githubwebhooks.camptocamp.com, githubwebhooksint.camptocamp.com, sharedconfigconfigs.camptocamp.com, sharedconfigconfigsint.camptocamp.com, sharedconfigsources.camptocamp.com, sharedconfigsourcesint.camptocamp.com, podmonitors.monitoring.coreos.com, pdb, role, rolebindings.rbac.authorization.k8s.io.
-
 ## `get-limits`
 
 Helper to get the limits, useful to used before applying a new limit on the namespace.

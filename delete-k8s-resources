@@ -6,7 +6,9 @@ import sys
 
 _RESOURCES = [
     "deployments.apps",
+    "externalsecrets.external-secrets.io",
     "cm",
+    "secret",
     "service",
     "cronjobs.batch",
     "ingress",
