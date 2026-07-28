@@ -160,6 +160,7 @@ def main() -> None:
                 env=env,
             )
             subprocess.run(["docker", "image", "rm", image], check=True)
+            subprocess.run(["docker", "image", "prune", "-af"], check=False)
         except subprocess.CalledProcessError:
             test_success = False
             traceback.print_exc()
