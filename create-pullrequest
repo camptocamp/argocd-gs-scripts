@@ -15,8 +15,9 @@ COMMIT_MESSAGE=$2
 
 BRANCH_NAME="${BRANCH_PREFIX}-${RANDOM}"
 git checkout -b "${BRANCH_NAME}"
+git config --global user.email "bot@camptocamp.com"
+git config --global user.name "Continuous integration"
 git add --all
 git commit --message="${COMMIT_MESSAGE}"
 git push origin "${BRANCH_NAME}"
-gopass show gs/ci/github/token/gopass | gh auth login --with-token
 gh pr create --fill --head "${BRANCH_NAME}"
