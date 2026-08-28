@@ -55,10 +55,6 @@ Used in the CI to print the diff with group aon application.
 
 Not used currently but made to do an ArgoCD sync, with a blacklist of applications.
 
-## `create-pullrequest`
-
-Used by CI to create a pull request.
-
 ## `snyk-images`
 
 Used by the CI to checks and monitor all the images with Snyk
