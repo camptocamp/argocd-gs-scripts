@@ -55,10 +55,6 @@ Used in the CI to print the diff with group aon application.
 
 Not used currently but made to do an ArgoCD sync, with a blacklist of applications.
 
-## `snyk-images`
-
-Used by the CI to checks and monitor all the images with Snyk
-
 ## `update-image-hash`
 
 Used by the CI to update the image hash in the values files.
