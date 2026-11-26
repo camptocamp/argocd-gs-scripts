@@ -1,0 +1,213 @@
+#!/bin/bash
+
+# Displays the quotas for a namespace, the resources
+# reserved by each pod, and checks whether a rolling update of the Deployments
+# fits within the remaining margin.
+#
+# Usage: ./k8s-quota-report.sh <namespace>
+# Dependencies: kubectl, jq, column (metrics-server is optional, for use with 'kubectl top')
+
+set -euo pipefail
+
+usage() { echo "Usage: $0 <namespace>" >&2; exit 1; }
+[[ $# -eq 1 ]] || usage
+NS="$1"
+
+for cmd in kubectl jq column; do
+  command -v "$cmd" >/dev/null || { echo "Commande requise manquante : $cmd" >&2; exit 1; }
+done
+
+if [[ -t 1 ]]; then
+  B=$'\e[1m'; R=$'\e[31m'; Y=$'\e[33m'; G=$'\e[32m'; D=$'\e[2m'; N=$'\e[0m'
+else
+  B=''; R=''; Y=''; G=''; D=''; N=''
+fi
+
+section() { printf '\n%s== %s ==%s\n' "$B" "$1" "$N"; }
+
+kubectl get namespace "$NS" >/dev/null
+
+# ---------------------------------------------------------------------------
+# Fonctions jq communes : conversion des quantités Kubernetes et calcul des
+# ressources effectives d'un pod (comme le fait le contrôleur de quota).
+# ---------------------------------------------------------------------------
+JQ_LIB='
+def cpu_m:
+  if . == null then null
+  else tostring as $s
+  | if   ($s|endswith("m")) then ($s[:-1]|tonumber)
+    elif ($s|endswith("u")) then ($s[:-1]|tonumber/1000)
+    elif ($s|endswith("n")) then ($s[:-1]|tonumber/1000000)
+    else ($s|tonumber*1000) end
+  end;
+
+def mem_b:
+  if . == null then null
+  else tostring as $s
+  | {"":1,"m":0.001,"k":1e3,"M":1e6,"G":1e9,"T":1e12,"P":1e15,"E":1e18,
+     "Ki":1024,"Mi":1048576,"Gi":1073741824,"Ti":1099511627776,
+     "Pi":1125899906842624,"Ei":1152921504606846976} as $u
+  | (try ($s|capture("^(?<n>[0-9.]+)(?<u>[A-Za-z]*)$")) catch null) as $c
+  | if $c != null and $u[$c.u] != null then ($c.n|tonumber) * $u[$c.u]
+    else ($s|tonumber) end
+  end;
+
+def qty($name):
+  if   ($name|test("cpu")) then cpu_m
+  elif ($name|test("memory|storage")) then mem_b
+  elif . == null then null
+  else tonumber end;
+
+def fmt_cpu: if . == null then "-" else "\(.|round)m" end;
+def fmt_mem:
+  if . == null then "-"
+  elif (.|fabs) >= 1073741824 then "\((./1073741824*100|round)/100)Gi"
+  else "\((./1048576)|round)Mi" end;
+def fmt($name):
+  if   . == null then "-"
+  elif ($name|test("cpu")) then fmt_cpu
+  elif ($name|test("memory|storage")) then fmt_mem
+  else tostring end;
+
+# Ressource effective d un pod (ou d un template de pod) :
+#   max(somme conteneurs + sidecars, plus gros init container + sidecars) + overhead
+# Pour les limits : null si un conteneur n en déclare pas (= pas de limite).
+def eff($kind; $key; conv):
+  (.spec // {}) as $sp
+  | if $kind == "limits"
+       and ([$sp.containers[]? | .resources.limits[$key]] | any(. == null))
+    then null
+    else
+      ([$sp.containers[]? | .resources[$kind][$key] | conv // 0] | add // 0) as $c
+      | ([$sp.initContainers[]? | select(.restartPolicy == "Always")
+          | .resources[$kind][$key] | conv // 0] | add // 0) as $side
+      | ([$sp.initContainers[]? | select(.restartPolicy != "Always")
+          | .resources[$kind][$key] | conv // 0] | max // 0) as $init
+      | ([$c + $side, $init + $side] | max) + ($sp.overhead[$key] | conv // 0)
+    end;
+'
+
+# ---------------------------------------------------------------------------
+# 1. Quotas
+# ---------------------------------------------------------------------------
+section "ResourceQuota du namespace $NS"
+QUOTA_JSON=$(kubectl get resourcequota -n "$NS" -o json)
+
+if [[ $(jq '.items | length' <<<"$QUOTA_JSON") -eq 0 ]]; then
+  echo "Aucun ResourceQuota dans ce namespace."
+else
+  {
+    printf 'QUOTA\tRESSOURCE\tUTILISE\tLIMITE\tLIBRE\tUSAGE\n'
+    jq -r "$JQ_LIB"'
+      .items[] | .metadata.name as $q | (.status.used // {}) as $used
+      | (.status.hard // {}) | to_entries[] | .key as $r
+      | (.value | qty($r)) as $h
+      | (($used[$r] | qty($r)) // 0) as $u
+      | [$q, $r, ($u|fmt($r)), ($h|fmt($r)), (($h - $u)|fmt($r)),
+         (if $h > 0 then ($u*100/$h|round) else 0 end)]
+      | @tsv' <<<"$QUOTA_JSON" |
+    awk -F'\t' -v OFS='\t' -v R="$R" -v Y="$Y" -v G="$G" -v N="$N" \
+      '{p=$6+0; c=(p>=90?R:(p>=75?Y:G)); $6=c p "%" N; print}'
+  } | column -t -s $'\t'
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Pods : réservations (requests/limits) et consommation réelle (top)
+# ---------------------------------------------------------------------------
+section "Pods actifs (triés par request CPU)"
+
+TOP_JSON='{}'
+if TOP_RAW=$(kubectl top pod -n "$NS" --no-headers 2>/dev/null) && [[ -n "$TOP_RAW" ]]; then
+  TOP_JSON=$(jq -Rn '[inputs | select(length > 0)
+                      | split(" ") | map(select(. != ""))
+                      | {(.[0]): {cpu: .[1], mem: .[2]}}] | add // {}' <<<"$TOP_RAW")
+else
+  printf '%s(kubectl top indisponible : colonnes *_USE vides)%s\n' "$D" "$N"
+fi
+
+{
+  printf 'POD\tPHASE\tCPU_REQ\tCPU_LIM\tCPU_USE\tMEM_REQ\tMEM_LIM\tMEM_USE\n'
+  kubectl get pods -n "$NS" -o json |
+  jq -r --argjson top "$TOP_JSON" "$JQ_LIB"'
+    [ .items[]
+      | select(.status.phase != "Succeeded" and .status.phase != "Failed")
+      | { name:  .metadata.name,
+          phase: (if .metadata.deletionTimestamp then "Terminating" else .status.phase end),
+          cr: eff("requests"; "cpu";    cpu_m),
+          cl: eff("limits";   "cpu";    cpu_m),
+          mr: eff("requests"; "memory"; mem_b),
+          ml: eff("limits";   "memory"; mem_b),
+          cu: ($top[.metadata.name].cpu | cpu_m),
+          mu: ($top[.metadata.name].mem | mem_b) } ]
+    | sort_by(-(.cr // 0))
+    | (.[] | [.name, .phase, (.cr|fmt_cpu), (.cl|fmt_cpu), (.cu|fmt_cpu),
+              (.mr|fmt_mem), (.ml|fmt_mem), (.mu|fmt_mem)] | @tsv),
+      (["TOTAL", "\(length) pods",
+        (map(.cr // 0)|add // 0|fmt_cpu), (map(.cl // 0)|add // 0|fmt_cpu),
+        (if ($top|length) > 0 then (map(.cu // 0)|add // 0|fmt_cpu) else "-" end),
+        (map(.mr // 0)|add // 0|fmt_mem), (map(.ml // 0)|add // 0|fmt_mem),
+        (if ($top|length) > 0 then (map(.mu // 0)|add // 0|fmt_mem) else "-" end)]
+       | @tsv)'
+} | column -t -s $'\t'
+printf '%sLIM "-" = au moins un conteneur sans limite déclarée.%s\n' "$D" "$N"
+
+# ---------------------------------------------------------------------------
+# 3. LimitRange (valeurs injectées par défaut dans les conteneurs)
+# ---------------------------------------------------------------------------
+LR_JSON=$(kubectl get limitrange -n "$NS" -o json)
+if [[ $(jq '.items | length' <<<"$LR_JSON") -gt 0 ]]; then
+  section "LimitRange (valeurs par défaut)"
+  {
+    printf 'LIMITRANGE\tTYPE\tDEF_REQ_CPU\tDEF_LIM_CPU\tDEF_REQ_MEM\tDEF_LIM_MEM\tMAX_CPU\tMAX_MEM\n'
+    jq -r '.items[] | .metadata.name as $n | .spec.limits[]
+      | [$n, .type,
+         (.defaultRequest.cpu // "-"), (.default.cpu // "-"),
+         (.defaultRequest.memory // "-"), (.default.memory // "-"),
+         (.max.cpu // "-"), (.max.memory // "-")] | @tsv' <<<"$LR_JSON"
+  } | column -t -s $'\t'
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Simulation d'un rolling update : les pods "surge" tiennent-ils dans la marge ?
+# ---------------------------------------------------------------------------
+if [[ $(jq '.items | length' <<<"$QUOTA_JSON") -gt 0 ]]; then
+  # Marge libre minimale par ressource, tous quotas confondus
+  FREE_JSON=$(jq "$JQ_LIB"'
+    [ .items[] | (.status.used // {}) as $u
+      | (.status.hard // {}) | to_entries[] | .key as $r
+      | ($r | if . == "cpu" then "requests.cpu"
+              elif . == "memory" then "requests.memory" else . end) as $k
+      | select($k | test("^(requests|limits)\\.(cpu|memory)$"))
+      | {k: $k, free: ((.value | qty($r)) - (($u[$r] | qty($r)) // 0))} ]
+    | group_by(.k) | map({(.[0].k): (map(.free) | min)}) | add // {}' <<<"$QUOTA_JSON")
+
+  section "Simulation de rolling update des Deployments"
+  {
+    printf 'DEPLOYMENT\tRESSOURCE\tPODS_SURGE\tPAR_POD\tBESOIN\tLIBRE\tRESULTAT\n'
+    kubectl get deploy -n "$NS" -o json |
+    jq -r --argjson free "$FREE_JSON" "$JQ_LIB"'
+      def surge:
+        (.spec.replicas // 1) as $rep
+        | if .spec.strategy.type == "Recreate" then 0
+          else (.spec.strategy.rollingUpdate.maxSurge // "25%") as $s
+          | if ($s|type) == "string"
+            then (($s|rtrimstr("%")|tonumber) * $rep / 100 | ceil)
+            else $s end
+          end;
+      .items[] | select((.spec.replicas // 1) > 0)
+      | .metadata.name as $d | surge as $n | .spec.template as $t
+      | ["requests.cpu","requests","cpu"], ["limits.cpu","limits","cpu"],
+        ["requests.memory","requests","memory"], ["limits.memory","limits","memory"]
+      | . as [$k, $kind, $res]
+      | select($free[$k] != null)
+      | ($t | eff($kind; $res; qty($k))) as $per
+      | select($per != null)
+      | ($per * $n) as $need
+      | [$d, $k, ($n|tostring), ($per|fmt($k)), ($need|fmt($k)),
+         ($free[$k]|fmt($k)), (if $need > $free[$k] then "KO" else "OK" end)]
+      | @tsv' |
+    awk -F'\t' -v OFS='\t' -v R="$R" -v G="$G" -v N="$N" \
+      '{$7=($7=="KO"?R:G) $7 N; print}'
+  } | column -t -s $'\t'
+  printf '%sKO = le rollout sera bloqué par le quota (pods surge créés avant suppression des anciens).%s\n' "$D" "$N"
+fi
